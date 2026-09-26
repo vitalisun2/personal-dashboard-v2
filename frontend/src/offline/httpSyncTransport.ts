@@ -2,9 +2,11 @@ import type { EntityChangePage, SyncPushRequest, SyncPushResponse, SyncTransport
 
 export class HttpSyncTransport implements SyncTransport {
   private readonly baseUrl: string;
+  private readonly fetcher: typeof fetch;
 
-  constructor(baseUrl = "", private readonly fetcher: typeof fetch = fetch) {
+  constructor(baseUrl = "", fetcher: typeof fetch = fetch) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
+    this.fetcher = (input, init) => fetcher(input, init);
   }
 
   async getSyncEpoch(): Promise<string> {

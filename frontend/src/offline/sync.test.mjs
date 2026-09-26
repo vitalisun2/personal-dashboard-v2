@@ -1,6 +1,23 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { HttpSyncTransport } from './httpSyncTransport.ts';
 import { syncPendingOperations, toSyncPushRequest } from './sync.ts';
+
+test('the HTTP transport does not rebind the fetch receiver', async () => {
+  let receiver = 'not called';
+  function fetcher() {
+    receiver = this;
+    return Promise.resolve(new Response(JSON.stringify({ epoch: 'epoch-1' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+  }
+
+  const transport = new HttpSyncTransport('', fetcher);
+
+  assert.equal(await transport.getSyncEpoch(), 'epoch-1');
+  assert.equal(receiver, undefined);
+});
 
 test('a version conflict preserves local work and blocks later edits for that entity', async () => {
   const pending = [
