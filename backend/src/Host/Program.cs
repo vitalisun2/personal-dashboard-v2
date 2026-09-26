@@ -19,6 +19,8 @@ builder.Services.ConfigureHttpJsonOptions(options =>
     options.SerializerOptions.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase)));
 builder.Services.AddPersonalOsV2Platform(builder.Configuration);
 builder.Services.AddV2Modules(builder.Configuration);
+builder.Services.AddHttpClient("V1Peer");
+builder.Services.AddHostedService<V1PeerSyncWorker>();
 
 var app = builder.Build();
 await app.Services.ApplyPersonalOsV2MigrationsAsync();

@@ -38,8 +38,7 @@ public sealed class TasksAgentAccess(TasksService service) : ITasksAgentAccess
                 }
                 var item = mutation.Operation switch
                 {
-                    TaskMutationKind.Create => await service.CreateAsync(mutation.Title ?? "", mutation.Description, mutation.Planning?.ProjectId, mutation.Planning?.MilestoneId, mutation.Planning?.FeatureId, mutation.SectionId, ct, mutation.Id),
-                    TaskMutationKind.Update => await service.UpdateMutationAsync(mutation.Id, Version(mutation), mutation.Title, mutation.Description, mutation.SectionId, ct),
+                    TaskMutationKind.Create or TaskMutationKind.Update => await ApplyCompatibleStateAsync(mutation, ct),
                     TaskMutationKind.Move => await Move(mutation, ct),
                     TaskMutationKind.SetWorkStatus => await service.SetStatusAsync(mutation.Id, Version(mutation), Parse<TaskWorkStatus>(mutation.WorkStatus), ct),
                     TaskMutationKind.Archive => await service.ArchiveAsync(mutation.Id, Version(mutation), ct),
@@ -53,6 +52,41 @@ public sealed class TasksAgentAccess(TasksService service) : ITasksAgentAccess
         }
         catch (Exception ex) when (ex is TaskVersionConflictException or KeyNotFoundException or ArgumentException or InvalidOperationException or InvalidPlanningLinkException)
         { return new(false, await ReadAsync(mutation.Kind, mutation.Id, ct), ex.Message); }
+    }
+
+    private async Task<TaskView> ApplyCompatibleStateAsync(TaskMutation mutation, CancellationToken ct)
+    {
+        TaskView item;
+        if (mutation.Operation == TaskMutationKind.Create)
+        {
+            item = await service.CreateAsync(mutation.Title ?? "", mutation.Description,
+                mutation.Planning?.ProjectId, mutation.Planning?.MilestoneId, mutation.Planning?.FeatureId,
+                sectionId: null, ct, mutation.Id);
+        }
+        else
+        {
+            item = await service.UpdateMutationAsync(mutation.Id, Version(mutation), mutation.Title, mutation.Description, sectionId: null, ct);
+        }
+
+        var placement = mutation.Placement?.ToLowerInvariant();
+        if (placement == "today" && item.Location == TaskLocation.Backlog)
+            item = await service.MoveToTodayAsync(item.Id, item.Version, ct);
+        else if (placement == "backlog" && item.Location is TaskLocation.Today or TaskLocation.Planned)
+            item = await service.MoveToBacklogAsync(item.Id, item.Version, ct);
+        else if (placement is not null && placement is not ("backlog" or "today"))
+            throw new ArgumentException("A compatible task placement must be backlog or today.");
+
+        if (mutation.SectionId is { } sectionId && item.SectionId != sectionId)
+            item = await service.SetSectionAsync(item.Id, item.Version, sectionId, ct);
+
+        // V2 only permits work status on Today tasks. Backlog status is not part of the compatible subset.
+        if (item.Location == TaskLocation.Today && mutation.WorkStatus is { } workStatus)
+        {
+            var targetStatus = Parse<TaskWorkStatus>(workStatus);
+            if (item.WorkStatus != targetStatus)
+                item = await service.SetStatusAsync(item.Id, item.Version, targetStatus, ct);
+        }
+        return item;
     }
 
     private async Task<TaskView> Move(TaskMutation m, CancellationToken ct) => m.Placement?.ToLowerInvariant() switch

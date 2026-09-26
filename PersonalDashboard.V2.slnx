@@ -6,6 +6,7 @@
   </Folder>
   <Folder Name="/backend/src/Host/">
     <Project Path="backend/src/Host/PersonalDashboard.V2.Host.csproj" />
+    <Project Path="backend/src/Host.Tests/PersonalDashboard.V2.Host.Tests.csproj" />
   </Folder>
   <Folder Name="/backend/src/Modules/" />
   <Folder Name="/backend/src/Modules/Agent/" />

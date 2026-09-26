@@ -7,7 +7,7 @@ using PersonalDashboard.V2.Platform.Persistence;
 
 namespace PersonalDashboard.V2.Platform;
 
-internal sealed class EfEntityChangeJournal(PlatformDbContext dbContext) : IEntityChangeJournal
+internal sealed class EfEntityChangeJournal(PlatformDbContext dbContext, PeerChangeOrigin changeOrigin) : IEntityChangeJournal
 {
     public async Task<long> AppendAsync(EntitySnapshot snapshot, CancellationToken cancellationToken = default)
     {
@@ -51,6 +51,7 @@ internal sealed class EfEntityChangeJournal(PlatformDbContext dbContext) : IEnti
                 Id = snapshot.Id,
                 Version = snapshot.Version,
                 Deleted = snapshot.Deleted,
+                ImportedFromPeer = changeOrigin.IsPeerImport,
                 PayloadJson = snapshot.Payload?.GetRawText()
             });
             await dbContext.SaveChangesAsync(cancellationToken);
@@ -96,7 +97,8 @@ internal sealed class EfEntityChangeJournal(PlatformDbContext dbContext) : IEnti
 
         var changes = rows.Select(row => new EntityChange(
             row.Sequence,
-            new EntitySnapshot(row.Type, row.Id, row.Version, row.Deleted, ParsePayload(row.PayloadJson))))
+            new EntitySnapshot(row.Type, row.Id, row.Version, row.Deleted, ParsePayload(row.PayloadJson)),
+            row.ImportedFromPeer))
             .ToArray();
 
         return new EntityChangePage(changes, changes.Length == 0 ? sequence : changes[^1].Sequence, isComplete);

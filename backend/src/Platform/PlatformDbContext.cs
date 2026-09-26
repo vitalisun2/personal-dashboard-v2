@@ -10,6 +10,8 @@ public sealed class PlatformDbContext(DbContextOptions<PlatformDbContext> option
 
     public DbSet<EntityChangeCursorRow> EntityChangeCursors => Set<EntityChangeCursorRow>();
 
+    public DbSet<V1PeerCursorRow> V1PeerCursors => Set<V1PeerCursorRow>();
+
     public DbSet<SyncOperationResultRow> SyncOperationResults => Set<SyncOperationResultRow>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

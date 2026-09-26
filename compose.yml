@@ -16,6 +16,8 @@ services:
     environment:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__PersonalOsV2: "Host=db;Port=5432;Database=personal_os_v2;Username=personal_os_v2;Password=${V2_DB_PASSWORD:?Set V2_DB_PASSWORD in a V2-only environment file}"
+      V1_PEER_URL: "${V1_PEER_URL:-http://host.docker.internal:8080}"
+      V1_V2_SYNC_KEY: "${V1_V2_SYNC_KEY:-}"
       OLLAMA_URL: "${V2_OLLAMA_URL:-http://host.docker.internal:11434}"
       OLLAMA_CHAT_MODEL: "${V2_GEMMA_MODEL:-gemma4:e4b-it-qat}"
       OLLAMA_EMBED_MODEL: "${V2_EMBED_MODEL:-embeddinggemma}"

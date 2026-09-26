@@ -3,6 +3,8 @@ using Microsoft.EntityFrameworkCore;
 using PersonalDashboard.V2.Contracts.Changes;
 using PersonalDashboard.V2.Contracts.Sync;
 using PersonalDashboard.V2.Contracts.Transactions;
+using System.Security.Cryptography;
+using System.Text;
 
 internal static class SyncEndpoints
 {
@@ -23,6 +25,9 @@ internal static class SyncEndpoints
         IEnumerable<ISyncMutationHandler> handlers,
         ISyncOperationJournal operationJournal,
         ITransactionRunner transactionRunner,
+        PersonalDashboard.V2.Platform.PeerChangeOrigin changeOrigin,
+        HttpContext httpContext,
+        IConfiguration configuration,
         CancellationToken cancellationToken)
     {
         if (!string.Equals(request.Epoch, CurrentSyncEpoch, StringComparison.Ordinal))
@@ -40,6 +45,12 @@ internal static class SyncEndpoints
         }
 
         var handlerMap = handlers.ToDictionary(handler => handler.Type, StringComparer.OrdinalIgnoreCase);
+        var suppliedPeerKey = httpContext.Request.Headers["X-PersonalDashboard-Sync-Key"].ToString();
+        if (!string.IsNullOrEmpty(suppliedPeerKey) && !IsTrustedPeerKey(configuration["V1_V2_SYNC_KEY"], suppliedPeerKey))
+        {
+            return Results.Unauthorized();
+        }
+        using var peerImport = string.IsNullOrEmpty(suppliedPeerKey) ? null : changeOrigin.EnterPeerImport();
         var results = new List<SyncPushResult>(request.Operations.Count);
         var stop = false;
 
@@ -139,6 +150,14 @@ internal static class SyncEndpoints
         }
 
         return Results.Ok(new SyncPushResponse(results));
+    }
+
+    internal static bool IsTrustedPeerKey(string? configured, string? supplied)
+    {
+        if (string.IsNullOrWhiteSpace(configured) || string.IsNullOrEmpty(supplied)) return false;
+        var expectedBytes = Encoding.UTF8.GetBytes(configured);
+        var suppliedBytes = Encoding.UTF8.GetBytes(supplied);
+        return expectedBytes.Length == suppliedBytes.Length && CryptographicOperations.FixedTimeEquals(expectedBytes, suppliedBytes);
     }
 
     private static async Task<Ok<EntityChangePage>> ReadChangesAsync(

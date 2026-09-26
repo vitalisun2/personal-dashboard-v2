@@ -27,6 +27,16 @@ internal sealed class EntityChangeCursorRowConfiguration : IEntityTypeConfigurat
     }
 }
 
+internal sealed class V1PeerCursorRowConfiguration : IEntityTypeConfiguration<V1PeerCursorRow>
+{
+    public void Configure(EntityTypeBuilder<V1PeerCursorRow> builder)
+    {
+        builder.ToTable("v1_peer_cursor", "platform");
+        builder.HasKey(row => row.Id);
+        builder.Property(row => row.Id).ValueGeneratedNever();
+    }
+}
+
 internal sealed class SyncOperationResultRowConfiguration : IEntityTypeConfiguration<SyncOperationResultRow>
 {
     public void Configure(EntityTypeBuilder<SyncOperationResultRow> builder)

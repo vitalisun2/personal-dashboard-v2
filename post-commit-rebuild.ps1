@@ -51,6 +51,8 @@ if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
     }
 
     $options = @{
+        'V1_PEER_URL' = 'V1_PEER_URL'
+        'V1_V2_SYNC_KEY' = 'V1_V2_SYNC_KEY'
         'V2_OLLAMA_URL' = 'OLLAMA_URL'
         'V2_GEMMA_MODEL' = 'OLLAMA_CHAT_MODEL'
         'V2_EMBED_MODEL' = 'OLLAMA_EMBED_MODEL'
