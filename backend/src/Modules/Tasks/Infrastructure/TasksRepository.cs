@@ -14,7 +14,13 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
     public async Task<IReadOnlyList<TaskItem>> ListAsync(TaskLocation? location, CancellationToken ct) =>
         await db.Set<TaskItem>().AsNoTracking().Where(x => location == null || x.Location == location).OrderBy(x => x.Position).ToListAsync(ct);
 
-    public Task<TaskItem?> GetAsync(Guid id, CancellationToken ct) => db.Set<TaskItem>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
+    public Task<TaskItem?> GetAsync(Guid id, CancellationToken ct)
+    {
+        var tracked = db.Set<TaskItem>().Local.SingleOrDefault(x => x.Id == id);
+        return tracked is not null
+            ? Task.FromResult<TaskItem?>(tracked)
+            : db.Set<TaskItem>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
+    }
 
     public Task SaveAsync(TaskItem item, CancellationToken ct) => transaction.ExecuteAsync(async token =>
     {
