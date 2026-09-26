@@ -3,6 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRoute, useRouter } from 'vue-router'
 import { getOfflineStore, saveOfflineMutation } from '../../offline/runtime'
 import type { OfflineEntity, SyncOperation } from '../../offline/types'
+import ReorderHandle from '../../shared/ReorderHandle.vue'
+import { startReorderDrag } from '../../shared/reorderDrag'
 
 type Feature = { id: string; title: string; description: string; position: number; version: number; status: string | number }
 type Milestone = { id: string; title: string; description: string; position: number; version: number; progressPercent: number; features: Feature[] }
@@ -502,19 +504,12 @@ function orderDragStart(event: PointerEvent, _id: string) {
   event.preventDefault()
   const sectionRoot = sectionRef.value, scroll = scrollRef.value
   if (!sectionRoot || !scroll) return
-  const rect = row.getBoundingClientRect()
-  const ghost = row.cloneNode(true) as HTMLElement
-  ghost.classList.add('planning-order-ghost', 'reorder-ghost')
-  ghost.style.width = `${rect.width}px`; ghost.style.height = `${rect.height}px`
-  sectionRoot.append(ghost)
+  const lifecycle = startReorderDrag(event, row, () => scroll.getBoundingClientRect())
   row.classList.add('planning-order-source')
-  const pointerId = event.pointerId, offsetX = rect.left - event.clientX, offsetY = rect.top - event.clientY
+  const pointerId = event.pointerId
   const move = (e: PointerEvent) => {
     if (e.pointerId !== pointerId) return
-    const bounds = scroll.getBoundingClientRect(), pad = 4
-    const x = Math.max(bounds.left + pad, Math.min(e.clientX + offsetX, bounds.right - rect.width - pad))
-    const y = Math.max(bounds.top + pad, Math.min(e.clientY + offsetY, bounds.bottom - rect.height - pad))
-    ghost.style.left = `${x}px`; ghost.style.top = `${y}px`
+    if (!lifecycle.update(e)) return
     const candidates = [...scroll.querySelectorAll('.planning-order-row')].filter(candidate => candidate !== row)
     const target = candidates.find(candidate => { const r = candidate.getBoundingClientRect(); return e.clientY < r.top + r.height / 2 })
     if (target) row.before(target)
@@ -528,7 +523,7 @@ function orderDragStart(event: PointerEvent, _id: string) {
     window.removeEventListener('blur', onBlur)
     window.removeEventListener('keydown', onKey, true)
     dragCleanup = null
-    ghost.remove(); row.classList.remove('planning-order-source')
+    lifecycle.cleanup(); row.classList.remove('planning-order-source')
     if (commit) commitOrderFromDom()
     else state.renderTick += 1
   }
@@ -655,7 +650,7 @@ onBeforeUnmount(onUnmountedCleanup)
             <div v-for="item in project.milestones" :key="'order-' + item.id" class="planning-milestone-row planning-order-row" :data-order-id="item.id">
               <span class="planning-milestone-title">{{ item.title }}</span>
               <span class="planning-milestone-progress"><strong>{{ item.progressPercent }}%</strong><div class="planning-progress-track"><div class="planning-progress-fill" :style="{ width: `${item.progressPercent}%` }" /></div></span>
-              <span class="planning-order-handle handle" aria-hidden="true" @pointerdown="orderDragStart($event, item.id)"><span><i></i><i></i><i></i><i></i><i></i><i></i></span></span>
+              <ReorderHandle class="planning-order-handle" :label="`Перетащить веху ${item.title}`" @pointerdown="orderDragStart($event, item.id)" />
             </div>
           </template>
           <template v-else>
@@ -688,7 +683,7 @@ onBeforeUnmount(onUnmountedCleanup)
           <template v-if="state.orderMode">
             <div v-for="item in milestone.features" :key="'order-' + item.id" class="planning-feature-row planning-order-row" :data-order-id="item.id">
               <span>{{ item.title }}</span>
-              <span class="planning-order-handle handle" aria-hidden="true" @pointerdown="orderDragStart($event, item.id)"><span><i></i><i></i><i></i><i></i><i></i><i></i></span></span>
+              <ReorderHandle class="planning-order-handle" :label="`Перетащить фичу ${item.title}`" @pointerdown="orderDragStart($event, item.id)" />
             </div>
           </template>
           <template v-else>
@@ -734,7 +729,7 @@ onBeforeUnmount(onUnmountedCleanup)
             <template v-if="state.orderMode">
               <div v-for="item in linkedTasks" :key="'order-' + item.id" class="planning-feature-task planning-order-row" :data-order-id="item.id">
                 <span class="planning-feature-task-title">{{ item.title }}</span>
-                <span v-if="taskState(item) === 'planned'" class="planning-order-handle handle" aria-hidden="true" @pointerdown="orderDragStart($event, item.id)"><span><i></i><i></i><i></i><i></i><i></i><i></i></span></span>
+                <ReorderHandle v-if="taskState(item) === 'planned'" class="planning-order-handle" :label="`Перетащить задачу ${item.title}`" @pointerdown="orderDragStart($event, item.id)" />
               </div>
             </template>
             <template v-else>

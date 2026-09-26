@@ -213,7 +213,6 @@ button { border: 0; background: transparent; cursor: pointer; }
 .phone-shell .planning-order-handle>span{width:11px;height:25px;display:grid!important;grid-template-columns:repeat(2,4px)!important;grid-template-rows:repeat(3,4px)!important;gap:3px!important;align-content:center}
 .phone-shell .planning-order-handle>span>i{display:block!important;width:4px!important;height:4px!important;min-width:4px;min-height:4px;border-radius:50%;background:currentColor;opacity:1;flex:none}
 .phone-shell .planning-order-source{opacity:.22}
-.phone-shell .planning-order-ghost .planning-order-handle{visibility:hidden}
 .phone-shell .planning-roadmap{display:flex;flex-direction:column;gap:4px}
 .phone-shell .planning-milestone-row{width:100%;min-height:56px;padding:6px 0 6px 2px;background:transparent;display:grid;grid-template-columns:minmax(0,1fr) 76px 18px;align-items:center;gap:10px;color:inherit;text-align:left;border-radius:12px}
 .phone-shell .planning-milestone-row:hover,.phone-shell .planning-feature-row:hover,.phone-shell .planning-feature-task:hover{background:rgba(255,255,255,.025)}
@@ -379,10 +378,7 @@ button { border: 0; background: transparent; cursor: pointer; }
 .phone-shell .planning-list-actions>.planning-order-toggle,.phone-shell .planning-head-actions>.planning-order-toggle{width:34px;min-width:34px;height:34px;padding:0;border-radius:10px}
 .phone-shell .planning-list-actions>button:last-child,.phone-shell .planning-head-actions>.planning-head-plus{width:34px;height:34px;border-radius:10px}
 .phone-shell .tasks-section .task-toolbar .order-mode-toggle{width:var(--toolbar-control-size);min-width:var(--toolbar-control-size);height:var(--toolbar-control-size);flex:0 0 var(--toolbar-control-size)}
-.phone-shell .reorder-ghost{position:fixed;z-index:9999;pointer-events:none;display:flex;align-items:center;overflow:hidden;border:1px solid rgba(184,211,242,.5);border-radius:12px;background:linear-gradient(90deg,rgba(39,55,71,.2),rgba(49,68,87,.2));color:#f3f6fa;box-shadow:0 12px 30px rgba(0,0,0,.08);transform:scale(1.01)}
-.phone-shell .reorder-ghost:not(.planning-order-ghost){color:rgba(243,246,250,.2)}
-.phone-shell .planning-order-ghost>*{opacity:.2}
-.phone-shell .reorder-ghost:not(.planning-order-ghost){padding:0 12px;font-size:14px;font-weight:650;white-space:nowrap;text-overflow:ellipsis}
+.reorder-ghost{position:fixed;z-index:9999;pointer-events:none;display:flex;align-items:center;overflow:hidden;padding:0 12px;border:2px solid rgba(184,211,242,.9);border-radius:12px;background:rgba(39,55,71,.2);box-shadow:0 12px 30px rgba(0,0,0,.08);color:#f3f6fa;font-size:14px;font-weight:650;white-space:nowrap;text-overflow:ellipsis}
 
 /* Row actions: the list stays still and the menu opens beside the selected row. */
 .phone-shell .node,.phone-shell .tasks-section .task-row,.phone-shell .tasks-section .task-section-row{user-select:none}

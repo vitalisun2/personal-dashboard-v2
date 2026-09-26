@@ -462,6 +462,8 @@ function resultPath(hit: SearchHit): string {
 <script lang="ts">
 import { defineComponent, h, nextTick as vueNextTick, onUnmounted as onVueUnmounted, watch as vueWatch, type PropType, type VNode } from 'vue'
 import type { KnowledgeNode as KNode } from './knowledgeApi'
+import ReorderHandle from '../../shared/ReorderHandle.vue'
+import { startReorderDrag } from '../../shared/reorderDrag'
 
 const KnowledgeTreeNodes = defineComponent({
   name: 'KnowledgeTreeNodes',
@@ -476,11 +478,10 @@ const KnowledgeTreeNodes = defineComponent({
   emits: ['toggle', 'open', 'menu', 'close', 'rename', 'rename-save', 'rename-cancel', 'delete', 'reorder'],
   setup(props, { emit }) {
     type Gesture = { id: string; pointerId: number; x: number; y: number; held: boolean; moved: boolean; timer?: number }
-    type Drag = { node: KNode; pointerId: number; x: number; y: number; row: HTMLElement; ghost: HTMLElement | null; targetId: string; placement: 'before' | 'after' | 'inside' | null; started: boolean }
+    type Drag = { node: KNode; pointerId: number; x: number; y: number; row: HTMLElement; targetId: string; placement: 'before' | 'after' | 'inside' | null; started: boolean; lifecycle: ReturnType<typeof startReorderDrag> }
     let gesture: Gesture | null = null
     let drag: Drag | null = null
     let suppressedClickUntil = 0
-    let ghostEl: HTMLElement | null = null
 
     const clearGesture = () => { if (gesture?.timer) window.clearTimeout(gesture.timer); gesture = null }
     const pointerDown = (node: KNode, event: PointerEvent) => {
@@ -501,23 +502,14 @@ const KnowledgeTreeNodes = defineComponent({
     const pointerMove = (event: PointerEvent) => {
       if (drag?.pointerId === event.pointerId) {
         const current = drag
-        if (!current.started && Math.hypot(event.clientX - current.x, event.clientY - current.y) > 6) {
+        if (current.lifecycle.update(event)) {
+          if (!current.started) {
           current.started = true
           current.row.classList.add('drag-source')
-          const ghost = document.createElement('div')
-          ghost.className = 'reorder-ghost'
-          ghost.textContent = current.node.title
-          const rect = current.row.getBoundingClientRect()
-          ghost.style.width = `${rect.width}px`
-          ghost.style.height = `${rect.height}px`
-          document.body.append(ghost)
-          ghostEl = ghost
-          current.ghost = ghost
+          }
         }
-        if (!current.started || !ghostEl) return
+        if (!current.started) return
         event.preventDefault()
-        ghostEl.style.left = `${event.clientX + 12}px`
-        ghostEl.style.top = `${event.clientY + 12}px`
         dropClear()
         const hit = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('.node[data-id]')
         current.targetId = ''
@@ -548,7 +540,7 @@ const KnowledgeTreeNodes = defineComponent({
       if (drag?.pointerId === event.pointerId) {
         const current = drag
         current.row.classList.remove('drag-source')
-        ghostEl?.remove(); ghostEl = null; drag = null
+        current.lifecycle.cleanup(); drag = null
         dropClear()
         if (current.started) {
           suppressedClickUntil = Date.now() + 700
@@ -573,15 +565,14 @@ const KnowledgeTreeNodes = defineComponent({
     }
     const pointerCancel = () => {
       clearGesture()
-      if (drag) { drag.row.classList.remove('drag-source'); ghostEl?.remove(); ghostEl = null; drag = null }
+      if (drag) { drag.row.classList.remove('drag-source'); drag.lifecycle.cleanup(); drag = null }
     }
     const dragStart = (node: KNode, event: PointerEvent) => {
       if (!props.orderMode || event.button !== 0) return
       event.preventDefault()
       const row = (event.currentTarget as HTMLElement).closest<HTMLElement>('.node')
       if (!row) return
-      ;(event.currentTarget as HTMLElement).setPointerCapture?.(event.pointerId)
-      drag = { node, pointerId: event.pointerId, x: event.clientX, y: event.clientY, row, ghost: null, targetId: '', placement: null, started: false }
+      drag = { node, pointerId: event.pointerId, x: event.clientX, y: event.clientY, row, targetId: '', placement: null, started: false, lifecycle: startReorderDrag(event, row) }
     }
     const dropClear = () => {
       document.querySelectorAll('.drop-before,.drop-after,.drop-inside').forEach(el => el.classList.remove('drop-before', 'drop-after', 'drop-inside'))
@@ -673,7 +664,6 @@ const KnowledgeTreeNodes = defineComponent({
         onBlur: (event: FocusEvent) => finish(event, true),
       }
     }
-    const dots = () => h('span', Array.from({ length: 6 }, () => h('i')))
     const draw = (items: KNode[], depth = 0): VNode[] => items.flatMap(node => {
       const rowChildren: VNode[] = []
       if (props.renameId === node.id) {
@@ -696,7 +686,7 @@ const KnowledgeTreeNodes = defineComponent({
           onClick: (event: MouseEvent) => { event.stopPropagation(); emit('menu', node.id) },
         }, '⋯'))
         if (props.orderMode) {
-          rowChildren.push(h('button', { class: 'handle', type: 'button', 'data-drag': node.id, 'aria-label': `Перетащить ${node.title}`, onPointerdown: (event: PointerEvent) => dragStart(node, event) }, dots()))
+          rowChildren.push(h(ReorderHandle, { label: `Перетащить ${node.title}`, onPointerdown: (event: PointerEvent) => dragStart(node, event) }))
         }
       }
       if (props.menuId === node.id && !props.orderMode && props.renameId !== node.id) {

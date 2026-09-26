@@ -3,6 +3,8 @@ import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } 
 import { useRoute, useRouter } from 'vue-router'
 import { getOfflineStore, saveOfflineMutation } from '../../offline/runtime'
 import type { OfflineEntity, SyncOperation } from '../../offline/types'
+import { startReorderDrag } from '../../shared/reorderDrag'
+import ReorderHandle from '../../shared/ReorderHandle.vue'
 
 type Task = { id: string; title: string; description: string; projectId?: string; milestoneId?: string; featureId?: string; location: string; workStatus: string; sectionId?: string; position: number; version: number }
 type Section = { id: string; name: string; location: string; position: number; version: number }
@@ -10,7 +12,7 @@ type ProjectLabel = { id: string; title: string }
 type MenuItem = { label: string; danger?: boolean; action: () => void }
 type GroupView = { kind: 'plain'; key: string; title: string; section: Section; tasks: Task[] } | { kind: 'project'; key: string; title: string; projectId: string; tasks: Task[] }
 type SwipeState = { key: string; pointerId: number; startX: number; startY: number; moved: boolean; long: boolean; timer: number }
-type DragState = { kind: 'task' | 'section'; id: string; pointerId: number; startX: number; startY: number; row: HTMLElement; target: HTMLElement | null; place: 'before' | 'after' | 'inside' | ''; started: boolean; ghost: HTMLDivElement | null; offsetX: number; offsetY: number; width: number; height: number; label: string }
+type DragState = { kind: 'task' | 'section'; id: string; pointerId: number; row: HTMLElement; target: HTMLElement | null; place: 'before' | 'after' | 'inside' | ''; started: boolean; lifecycle: ReturnType<typeof startReorderDrag> }
 
 const api = '/api/v2/tasks'
 const route = useRoute(), router = useRouter()
@@ -471,31 +473,18 @@ function onGroupsPointerDown(event: PointerEvent) {
   const id = handle.dataset.dragId || ''
   const row = kind === 'task' ? handle.closest<HTMLElement>('[data-task-id]') : handle.closest<HTMLElement>('[data-section-row-key]')
   if (!row) return
-  const rect = row.getBoundingClientRect()
-  const label = kind === 'task' ? (taskById(id)?.title || '') : (state.sections.find(s => s.id === id)?.name || '')
-  drag = { kind, id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, row, target: null, place: '', started: false, ghost: null, offsetX: event.clientX - rect.left, offsetY: event.clientY - rect.top, width: rect.width, height: rect.height, label }
-  handle.setPointerCapture?.(event.pointerId)
+  drag = { kind, id, pointerId: event.pointerId, row, target: null, place: '', started: false, lifecycle: startReorderDrag(event, row, () => scrollEl.value?.getBoundingClientRect()) }
 }
 function onGroupsPointerMove(event: PointerEvent) {
   if (!drag || drag.pointerId !== event.pointerId) return
-  if (!drag.started && Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) > 6) {
-    drag.started = true
-    drag.row.classList.add('task-drag-source')
-    const ghost = document.createElement('div')
-    ghost.className = 'reorder-ghost'
-    ghost.textContent = drag.label
-    ghost.style.width = `${drag.width}px`; ghost.style.height = `${drag.height}px`
-    document.body.append(ghost)
-    drag.ghost = ghost
+  if (drag.lifecycle.update(event)) {
+    if (!drag.started) {
+      drag.started = true
+      drag.row.classList.add('task-drag-source')
+    }
   }
   if (!drag.started) return
   event.preventDefault()
-  const bounds = scrollEl.value?.getBoundingClientRect()
-  if (bounds && drag.ghost) {
-    const pad = 4
-    drag.ghost.style.left = `${Math.max(bounds.left + pad, Math.min(event.clientX - drag.offsetX, bounds.right - drag.width - pad))}px`
-    drag.ghost.style.top = `${Math.max(bounds.top + pad, Math.min(event.clientY - drag.offsetY, bounds.bottom - drag.height - pad))}px`
-  }
   clearDragMarks()
   drag.target = null; drag.place = ''
   const hit = document.elementFromPoint(event.clientX, event.clientY)
@@ -572,7 +561,7 @@ function onGroupsPointerCancel(event: PointerEvent) {
   if (!drag || drag.pointerId !== event.pointerId) return
   clearGhost(); clearDragMarks(); drag = null
 }
-function clearGhost() { if (drag?.row) drag.row.classList.remove('task-drag-source'); drag?.ghost?.remove(); if (drag) drag.ghost = null }
+function clearGhost() { if (drag?.row) drag.row.classList.remove('task-drag-source'); drag?.lifecycle.cleanup() }
 function clearDragMarks() { groupsEl.value?.querySelectorAll('.task-drop-inside,.task-drop-before,.task-drop-after').forEach(el => el.classList.remove('task-drop-inside', 'task-drop-before', 'task-drop-after')) }
 
 // ---------- API / offline (unchanged semantics) ----------
@@ -820,7 +809,7 @@ onBeforeUnmount(() => {
                   <span class="task-copy"><span class="task-title">{{ task.title }}</span></span>
                 </button>
                 <button type="button" class="row-menu-trigger" :hidden="state.orderMode" :aria-label="`Действия с задачей «${task.title}»`" aria-haspopup="menu" @click.stop="triggerMenu(`task:${task.id}`)">⋯</button>
-                <button v-if="state.orderMode" type="button" class="handle" data-drag-kind="task" :data-drag-id="task.id" :aria-label="`Перетащить ${task.title}`"><span><i></i><i></i><i></i><i></i><i></i><i></i></span></button>
+                <ReorderHandle v-if="state.orderMode" :drag-kind="'task'" :drag-id="task.id" :label="`Перетащить ${task.title}`" />
               </template>
             </article>
           </div>
@@ -839,7 +828,7 @@ onBeforeUnmount(() => {
                     <span class="task-section-label">{{ group.title }}</span>
                   </button>
                   <button type="button" class="row-menu-trigger" :hidden="state.orderMode" :aria-label="`Действия с разделом «${group.title}»`" aria-haspopup="menu" @click.stop="triggerMenu(group.key)">⋯</button>
-                  <button v-if="group.kind === 'plain' && state.orderMode" type="button" class="handle" data-drag-kind="section" :data-drag-id="group.section.id" :aria-label="`Перетащить раздел ${group.title}`"><span><i></i><i></i><i></i><i></i><i></i><i></i></span></button>
+                  <ReorderHandle v-if="group.kind === 'plain' && state.orderMode" :drag-kind="'section'" :drag-id="group.section.id" :label="`Перетащить раздел ${group.title}`" />
                 </template>
               </div>
             </div>
@@ -855,7 +844,7 @@ onBeforeUnmount(() => {
                       <span class="task-copy"><span class="task-title">{{ task.title }}</span></span>
                     </button>
                     <button type="button" class="row-menu-trigger" :hidden="state.orderMode" :aria-label="`Действия с задачей «${task.title}»`" aria-haspopup="menu" @click.stop="triggerMenu(`task:${task.id}`)">⋯</button>
-                    <button v-if="state.orderMode" type="button" class="handle" data-drag-kind="task" :data-drag-id="task.id" :aria-label="`Перетащить ${task.title}`"><span><i></i><i></i><i></i><i></i><i></i><i></i></span></button>
+                    <ReorderHandle v-if="state.orderMode" :drag-kind="'task'" :drag-id="task.id" :label="`Перетащить ${task.title}`" />
                   </template>
                 </article>
               </div>
