@@ -1,12 +1,12 @@
 # Personal OS V2 foundation
 
-V2 is a separate application under `v2/`. The repository root solution, Compose project, and JSON data belong to V1.
+Personal OS V2 is maintained as a standalone repository. Its solution, Compose project, and application data are rooted here and are isolated from V1.
 
 ## Development
 
 - Backend: `dotnet build PersonalDashboard.V2.slnx`
 - Frontend: from `frontend/`, use Node.js 24 and run `npm ci`, then `npm run build`.
-- EF tools: `dotnet tool restore` from `v2/`. The initial Host migration creates only Platform sync tables. After all domain module mappings are integrated, run:
+- EF tools: run `dotnet tool restore` from the repository root. The initial Host migration creates only Platform sync tables. After all domain module mappings are integrated, run:
 
   ```powershell
   dotnet build PersonalDashboard.V2.slnx

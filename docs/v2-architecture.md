@@ -1,6 +1,6 @@
 # Personal Dashboard V2 — техническая архитектура
 
-Этот документ описывает устройство новой реализации в `v2/`. Цели и пользовательские сценарии — в [концепции](v2-concept.md); [HTML-макет](../v2/mockup/README.md) и его [UX-описание](../v2/mockup/UX.md) задают поведение интерфейса. Backend и frontend V2 пишутся с нуля, без переноса кода текущего Dashboard.
+Этот документ описывает устройство Personal Dashboard V2 в корне самостоятельного репозитория. Цели и пользовательские сценарии — в [концепции](v2-concept.md); [HTML-макет](../mockup/README.md) и его [UX-описание](../mockup/UX.md) задают поведение интерфейса. Backend и frontend V2 пишутся с нуля, без переноса кода текущего Dashboard.
 
 ## Состав системы и границы
 
@@ -12,34 +12,33 @@
 
 ## Организация репозитория и solution
 
-V2 живёт целиком в `v2/`; существующий `PersonalDashboard.slnx` относится к первой версии. Предлагаемая структура новой версии:
+V2 живёт в корне этого самостоятельного репозитория. Предлагаемая структура:
 
 ```text
-v2/
-  PersonalDashboard.V2.slnx
-  backend/
-    src/
-      Host/                 PersonalDashboard.V2.Host.csproj
-      Contracts/            PersonalDashboard.V2.Contracts.csproj
-      Platform/             PersonalDashboard.V2.Platform.csproj
-      Modules/
-        Knowledge/
-          Domain/           PersonalDashboard.V2.Knowledge.Domain.csproj
-          Application/      PersonalDashboard.V2.Knowledge.Application.csproj
-          Infrastructure/   PersonalDashboard.V2.Knowledge.Infrastructure.csproj
-          Api/              PersonalDashboard.V2.Knowledge.Api.csproj
-        Planning/           те же четыре проекта
-        Tasks/              те же четыре проекта
-        Chat/               те же четыре проекта
-        Agent/              те же четыре проекта
-        Search/             те же четыре проекта
-    tests/                  модульные и интеграционные тестовые проекты
-  frontend/                 один Vue-проект
-    src/app/                оболочка, маршруты, навигация
-    src/modules/            knowledge, planning, tasks, chat, search
-    src/shared/             UI-компоненты и общие клиентские контракты
-    src/offline/            IndexedDB и Sync Engine
-  mockup/                   исходный интерактивный UX-макет
+PersonalDashboard.V2.slnx
+backend/
+  src/
+    Host/                 PersonalDashboard.V2.Host.csproj
+    Contracts/            PersonalDashboard.V2.Contracts.csproj
+    Platform/             PersonalDashboard.V2.Platform.csproj
+    Modules/
+      Knowledge/
+        Domain/           PersonalDashboard.V2.Knowledge.Domain.csproj
+        Application/      PersonalDashboard.V2.Knowledge.Application.csproj
+        Infrastructure/   PersonalDashboard.V2.Knowledge.Infrastructure.csproj
+        Api/              PersonalDashboard.V2.Knowledge.Api.csproj
+      Planning/           те же четыре проекта
+      Tasks/              те же четыре проекта
+      Chat/               те же четыре проекта
+      Agent/              те же четыре проекта
+      Search/             те же четыре проекта
+  tests/                  модульные и интеграционные тестовые проекты
+frontend/                 один Vue-проект
+  src/app/                оболочка, маршруты, навигация
+  src/modules/            knowledge, planning, tasks, chat, search
+  src/shared/             UI-компоненты и общие клиентские контракты
+  src/offline/            IndexedDB и Sync Engine
+mockup/                   исходный интерактивный UX-макет
 ```
 
 `Host` — точка запуска: конфигурация, DI, HTTP pipeline и подключение endpoints всех модулей. `Contracts` содержит только стабильные межмодульные интерфейсы, DTO и события, без доменной логики и EF Core. `Platform` реализует общую техническую инфраструктуру: подключение к PostgreSQL, логирование и транспорт синхронизации. Адаптеры AI-провайдеров принадлежат `Agent.Infrastructure`; поисковый индекс — `Search.Infrastructure`.
