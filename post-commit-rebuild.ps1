@@ -6,30 +6,25 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$stand = 'C:\Main\crystal_wave\personal-dashboard'
+$stand = 'C:\Main\crystal_wave\personal-dashboard-v2'
 $canonicalStand = [System.IO.Path]::GetFullPath($stand).TrimEnd('\', '/')
 $root = (& git rev-parse --show-toplevel).Trim()
 if ([System.IO.Path]::GetFullPath($root).TrimEnd('\', '/') -ine $canonicalStand) { exit 0 }
 if ((& git branch --show-current).Trim() -ne 'main') { exit 0 }
 
-$changed = @(& git diff-tree --no-commit-id --name-only -r $Commit)
-if ($LASTEXITCODE -ne 0) { throw "Cannot inspect commit $Commit" }
-$needsRebuild = $changed | Where-Object {
-    $_ -match '^v2/(backend/|frontend/|Dockerfile$|compose\.yml$|\.dockerignore$|PersonalDashboard\.V2\.slnx$|post-commit-rebuild\.ps1$)'
-}
-if (-not $needsRebuild) { exit 0 }
+& git cat-file -e ($Commit + '^{commit}')
+if ($LASTEXITCODE -ne 0) { throw "Cannot resolve commit $Commit" }
 if ($DryRun) {
-    Write-Host "Personal OS V2 post-commit: $Commit requires a rebuild."
+    Write-Host "Personal OS V2 post-commit: $Commit will rebuild the app container."
     exit 0
 }
 
-$v2Root = Join-Path $stand 'v2'
-$envFile = Join-Path $v2Root '.env'
+$envFile = Join-Path $stand '.env'
 if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
     # Reuse the configuration of the running V2 stand without writing secrets to disk.
     function Get-ComposeContainer([string]$service) {
         $id = @(& docker ps --filter 'label=com.docker.compose.project=personal-os-v2' --filter "label=com.docker.compose.service=$service" --format '{{.ID}}') | Select-Object -First 1
-        if (-not $id) { throw "V2 $service container is unavailable. Configure v2/.env before rebuilding." }
+        if (-not $id) { throw "V2 $service container is unavailable. Configure .env before rebuilding." }
         return (docker inspect $id | ConvertFrom-Json)[0]
     }
 
@@ -70,7 +65,8 @@ if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
     }
 }
 
-# Build exactly the committed V2 tree, excluding unrelated staged or working changes.
+# Build exactly the committed repository tree, excluding staged, working-tree,
+# and untracked changes.
 $tempBase = Join-Path ([System.IO.Path]::GetFullPath($env:TEMP)) 'personal-os-v2-build'
 $tempRoot = Join-Path $tempBase ([guid]::NewGuid().ToString('N'))
 $resolvedBase = [System.IO.Path]::GetFullPath($tempBase).TrimEnd('\', '/') + [System.IO.Path]::DirectorySeparatorChar
@@ -84,8 +80,8 @@ try {
     $archive = Join-Path $resolvedTemp 'v2.tar'
     $buildRoot = Join-Path $resolvedTemp 'source'
     New-Item -ItemType Directory -Path $buildRoot | Out-Null
-    & git archive --format=tar --output=$archive ($Commit + ':v2')
-    if ($LASTEXITCODE -ne 0) { throw "Cannot archive $Commit`:v2" }
+    & git archive --format=tar --output=$archive $Commit
+    if ($LASTEXITCODE -ne 0) { throw "Cannot archive $Commit" }
     $windowsTar = Join-Path $env:WINDIR 'System32\tar.exe'
     & $windowsTar -xf $archive -C $buildRoot
     if ($LASTEXITCODE -ne 0) { throw 'Cannot extract committed V2 source.' }
@@ -97,8 +93,9 @@ try {
     & docker compose @buildArgs
     if ($LASTEXITCODE -ne 0) { throw "V2 Docker build exited with code $LASTEXITCODE" }
 
-    # Recreate from the original Compose file so container metadata keeps a stable path.
-    $upArgs = $envArgs + @('--project-directory', $v2Root, '-f', (Join-Path $v2Root 'compose.yml'), 'up', '-d', '--no-build', '--no-deps', '--force-recreate', 'app')
+    # Recreate only app from the stable Compose path. The database service and
+    # its persistent volume are deliberately left untouched.
+    $upArgs = $envArgs + @('--project-directory', $stand, '-f', (Join-Path $stand 'compose.yml'), 'up', '-d', '--no-build', '--no-deps', '--force-recreate', 'app')
     & docker compose @upArgs
     if ($LASTEXITCODE -ne 0) { throw "V2 Docker startup exited with code $LASTEXITCODE" }
 }
