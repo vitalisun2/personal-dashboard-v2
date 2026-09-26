@@ -80,9 +80,10 @@ export class IndexedDbOfflineStore implements OfflineStore {
 
   async listEntities<T = unknown>(type?: string): Promise<OfflineEntity<T>[]> {
     const transaction = this.database.transaction("entities", "readonly");
+    const completion = transactionDone(transaction);
     const store = transaction.objectStore("entities");
     const entities = await requestResult(store.getAll()) as OfflineEntity<T>[];
-    await transactionDone(transaction);
+    await completion;
     return type ? entities.filter(entity => entity.type === type) : entities;
   }
 
@@ -94,8 +95,9 @@ export class IndexedDbOfflineStore implements OfflineStore {
 
   async listPendingOperations(): Promise<SyncOperation[]> {
     const transaction = this.database.transaction("operations", "readonly");
+    const completion = transactionDone(transaction);
     const operations = await requestResult(transaction.objectStore("operations").getAll()) as SyncOperation[];
-    await transactionDone(transaction);
+    await completion;
     return operations.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.operationId.localeCompare(b.operationId));
   }
 
@@ -133,15 +135,17 @@ export class IndexedDbOfflineStore implements OfflineStore {
 
   async listConflicts(): Promise<SyncConflict[]> {
     const transaction = this.database.transaction("conflicts", "readonly");
+    const completion = transactionDone(transaction);
     const conflicts = await requestResult(transaction.objectStore("conflicts").getAll()) as SyncConflict[];
-    await transactionDone(transaction);
+    await completion;
     return conflicts.sort((a, b) => a.detectedAt.localeCompare(b.detectedAt));
   }
 
   private async read<T>(storeName: string, key: IDBValidKey): Promise<T | undefined> {
     const transaction = this.database.transaction(storeName, "readonly");
+    const completion = transactionDone(transaction);
     const result = await requestResult(transaction.objectStore(storeName).get(key)) as T | undefined;
-    await transactionDone(transaction);
+    await completion;
     return result;
   }
 
