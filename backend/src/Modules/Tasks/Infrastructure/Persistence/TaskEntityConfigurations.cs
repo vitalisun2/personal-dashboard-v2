@@ -54,3 +54,22 @@ public sealed class TaskSectionConfiguration : IEntityTypeConfiguration<TaskSect
         builder.HasIndex(x => new { x.Location, x.Name }).IsUnique();
     }
 }
+
+public sealed class TaskGroupOrderRow
+{
+    public TaskLocation Location { get; set; }
+    public long Version { get; set; }
+    public string KeysJson { get; set; } = "[]";
+}
+
+public sealed class TaskGroupOrderConfiguration : IEntityTypeConfiguration<TaskGroupOrderRow>
+{
+    public void Configure(EntityTypeBuilder<TaskGroupOrderRow> builder)
+    {
+        builder.ToTable("task_group_orders", "tasks");
+        builder.HasKey(x => x.Location);
+        builder.Property(x => x.Location).HasConversion<string>().HasMaxLength(20);
+        builder.Property(x => x.Version).IsConcurrencyToken();
+        builder.Property(x => x.KeysJson).HasColumnType("jsonb").IsRequired();
+    }
+}

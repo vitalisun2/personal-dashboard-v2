@@ -1,0 +1,49 @@
+using PersonalDashboard.V2.Contracts.Transactions;
+using PersonalDashboard.V2.Tasks.Domain;
+
+namespace PersonalDashboard.V2.Tasks.Application;
+
+public sealed record TaskGroupOrderView(long Version, IReadOnlyList<string> Keys);
+
+public interface ITaskGroupOrderRepository
+{
+    Task<TaskGroupOrderView> ReadGroupOrderAsync(TaskLocation location, CancellationToken ct);
+    Task SaveGroupOrderAsync(TaskLocation location, long expectedVersion, IReadOnlyList<string> keys, CancellationToken ct);
+}
+
+public sealed class TaskGroupOrderService(ITasksRepository tasks, ITaskGroupOrderRepository orders, ITransactionRunner transaction)
+{
+    public async Task<TaskGroupOrderView> GetAsync(TaskLocation location, CancellationToken ct)
+    {
+        EnsureLocation(location);
+        var saved = await orders.ReadGroupOrderAsync(location, ct);
+        var current = await CurrentKeysAsync(location, ct);
+        var visible = saved.Keys.Where(current.Contains).Distinct().ToList();
+        visible.AddRange(current.Where(key => !visible.Contains(key)));
+        return new TaskGroupOrderView(saved.Version, visible);
+    }
+
+    public Task<TaskGroupOrderView> ReorderAsync(TaskLocation location, long expectedVersion, IReadOnlyList<string> keys, CancellationToken ct) => transaction.ExecuteAsync(async token =>
+    {
+        EnsureLocation(location);
+        var current = await CurrentKeysAsync(location, token);
+        if (keys.Count != current.Count || keys.Distinct().Count() != keys.Count || !keys.ToHashSet().SetEquals(current))
+            throw new ArgumentException("Order must include every current task group exactly once.");
+        await orders.SaveGroupOrderAsync(location, expectedVersion, keys, token);
+        return new TaskGroupOrderView(expectedVersion + 1, keys.ToArray());
+    }, ct);
+
+    private async Task<IReadOnlyList<string>> CurrentKeysAsync(TaskLocation location, CancellationToken ct)
+    {
+        var sections = await tasks.ListSectionsAsync(location, ct);
+        var items = await tasks.ListAsync(location, ct);
+        return sections.OrderBy(x => x.Position).Select(x => $"section:{x.Id}")
+            .Concat(items.Where(x => x.ProjectId is not null).Select(x => x.ProjectId!.Value).Distinct().Select(id => $"project:{id}"))
+            .ToArray();
+    }
+
+    private static void EnsureLocation(TaskLocation location)
+    {
+        if (location is not (TaskLocation.Backlog or TaskLocation.Today)) throw new ArgumentException("Groups belong to Backlog or Today.");
+    }
+}

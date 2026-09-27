@@ -9,7 +9,7 @@ using PersonalDashboard.V2.Tasks.Infrastructure.Persistence;
 
 namespace PersonalDashboard.V2.Tasks.Infrastructure;
 
-public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner transaction, IEntityChangeJournal journal, PersonalDashboard.V2.Contracts.Planning.IPlanningPathReader paths) : ITasksRepository
+public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner transaction, IEntityChangeJournal journal, PersonalDashboard.V2.Contracts.Planning.IPlanningPathReader paths) : ITasksRepository, ITaskGroupOrderRepository
 {
     public async Task<IReadOnlyList<TaskItem>> ListAsync(TaskLocation? location, CancellationToken ct) =>
         await db.Set<TaskItem>().AsNoTracking().Where(x => location == null || x.Location == location).OrderBy(x => x.Position).ToListAsync(ct);
@@ -64,6 +64,21 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
 
     public async Task<IReadOnlyList<TaskSection>> ListSectionsAsync(TaskLocation location, CancellationToken ct) =>
         await db.Set<TaskSection>().AsNoTracking().Where(x => x.Location == location).OrderBy(x => x.Position).ToListAsync(ct);
+
+    public async Task<TaskGroupOrderView> ReadGroupOrderAsync(TaskLocation location, CancellationToken ct)
+    {
+        var row = await db.Set<TaskGroupOrderRow>().AsNoTracking().SingleOrDefaultAsync(x => x.Location == location, ct);
+        return row is null ? new(0, []) : new(row.Version, JsonSerializer.Deserialize<string[]>(row.KeysJson) ?? []);
+    }
+
+    public async Task SaveGroupOrderAsync(TaskLocation location, long expectedVersion, IReadOnlyList<string> keys, CancellationToken ct)
+    {
+        var row = await db.Set<TaskGroupOrderRow>().SingleOrDefaultAsync(x => x.Location == location, ct);
+        var actualVersion = row?.Version ?? 0;
+        if (actualVersion != expectedVersion) throw new TaskVersionConflictException(actualVersion, expectedVersion);
+        if (row is null) db.Add(new TaskGroupOrderRow { Location = location, Version = 1, KeysJson = JsonSerializer.Serialize(keys) });
+        else { row.Version++; row.KeysJson = JsonSerializer.Serialize(keys); }
+    }
 
     public Task SaveSectionAsync(TaskSection section, CancellationToken ct) => transaction.ExecuteAsync(async token =>
     {

@@ -40,6 +40,8 @@ public static class TasksApiModule
         group.MapPost("/sections", (TaskSectionCreate input, TasksService service, CancellationToken ct) => service.CreateSectionAsync(input.Name, input.Location, ct));
         group.MapPut("/sections/{id:guid}", (Guid id, TaskSectionEditInput input, TasksService service, CancellationToken ct) => service.RenameSectionAsync(id, input.ExpectedVersion, input.Name, ct));
         group.MapPut("/sections/order", (TaskSectionOrderInput input, TasksService service, CancellationToken ct) => service.ReorderSectionsAsync(input.Location, input.ExpectedVersion, input.Ids, ct));
+        group.MapGet("/groups/order", (TaskLocation location, TaskGroupOrderService service, CancellationToken ct) => service.GetAsync(location, ct));
+        group.MapPut("/groups/order", (TaskGroupOrderInput input, TaskGroupOrderService service, CancellationToken ct) => service.ReorderAsync(input.Location, input.ExpectedVersion, input.Keys, ct));
         group.MapDelete("/sections/{id:guid}", async (Guid id, [FromBody] VersionInput input, TasksService service, CancellationToken ct) => { await service.DeleteSectionAsync(id, input.ExpectedVersion, ct); return Results.NoContent(); });
         return endpoints;
     }
@@ -54,4 +56,5 @@ public static class TasksApiModule
     public sealed record TaskSectionCreate(string Name, TaskLocation Location);
     public sealed record TaskSectionEditInput(long ExpectedVersion, string Name);
     public sealed record TaskSectionOrderInput(TaskLocation Location, long ExpectedVersion, IReadOnlyList<Guid> Ids);
+    public sealed record TaskGroupOrderInput(TaskLocation Location, long ExpectedVersion, IReadOnlyList<string> Keys);
 }

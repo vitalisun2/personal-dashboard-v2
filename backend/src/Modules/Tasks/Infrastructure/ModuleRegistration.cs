@@ -13,7 +13,9 @@ public static class TasksInfrastructureModule
     public static IServiceCollection AddTasksInfrastructure(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddScoped<ITasksRepository, TasksRepository>();
+        services.AddScoped<ITaskGroupOrderRepository>(sp => (TasksRepository)sp.GetRequiredService<ITasksRepository>());
         services.AddScoped<TasksService>();
+        services.AddScoped<TaskGroupOrderService>();
         services.AddScoped<ITaskPlanningLinkUsage, TaskPlanningLinkUsage>();
         services.AddScoped<ITaskPlanningProjectionRefresh, TaskPlanningProjectionRefresh>();
         services.AddScoped<TasksAgentAccess>();

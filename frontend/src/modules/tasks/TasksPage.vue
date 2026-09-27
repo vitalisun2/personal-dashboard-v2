@@ -13,6 +13,7 @@ type MilestoneLabel = { id: string; title: string; features: FeatureLabel[] }
 type ProjectLabel = { id: string; title: string; milestones: MilestoneLabel[] }
 type MenuItem = { label: string; danger?: boolean; action: () => void }
 type GroupView = { kind: 'plain'; key: string; title: string; section: Section; tasks: Task[] } | { kind: 'project'; key: string; title: string; projectId: string; tasks: Task[] }
+type GroupOrder = { version: number; keys: string[] }
 type SwipeState = { key: string; pointerId: number; startX: number; startY: number; moved: boolean; long: boolean; timer: number }
 type DragState = { kind: 'task' | 'section'; id: string; pointerId: number; row: HTMLElement; target: HTMLElement | null; place: 'before' | 'after' | 'inside' | ''; started: boolean; lifecycle: ReturnType<typeof startReorderDrag> }
 
@@ -22,6 +23,7 @@ const state = reactive({
   bucket: 'Backlog' as 'Backlog' | 'Сегодня', filter: 'all', archive: false, orderMode: false,
   expanded: { Backlog: new Set<string>(), Сегодня: new Set<string>() },
   tasks: [] as Task[], sections: [] as Section[], projects: [] as ProjectLabel[],
+  groupOrder: { version: 0, keys: [] } as GroupOrder,
   detail: null as Task | null, busy: false, error: '',
   creating: false, createType: 'task' as 'task' | 'section', createListOpen: false,
   title: '', description: '', sectionId: '',
@@ -47,7 +49,8 @@ const groups = computed<GroupView[]>(() => {
     if (!group.tasks.length) continue
     result.push({ kind: 'project', key: `project:${group.projectId}`, title: group.title, projectId: group.projectId, tasks: group.tasks })
   }
-  return result
+  const positions = new Map(state.groupOrder.keys.map((key, index) => [key, index]))
+  return result.sort((a, b) => (positions.get(a.key) ?? Number.MAX_SAFE_INTEGER) - (positions.get(b.key) ?? Number.MAX_SAFE_INTEGER))
 })
 const allOpen = computed(() => {
   const keys = groups.value.map(g => g.key)
@@ -539,7 +542,7 @@ function onGroupsPointerMove(event: PointerEvent) {
     return
   }
   const sectionRow = hit.closest<HTMLElement>('[data-section-row-key]')
-  if (!sectionRow || sectionRow.dataset.sectionProject || sectionRow.dataset.dragKey === `section:${drag.id}`) return
+  if (!sectionRow || sectionRow.dataset.dragKey === drag.id) return
   const rect = sectionRow.getBoundingClientRect()
   drag.target = sectionRow; drag.place = event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
   sectionRow.classList.add(drag.place === 'before' ? 'task-drop-before' : 'task-drop-after')
@@ -551,9 +554,8 @@ async function finishDrag(event: PointerEvent) {
   if (!current.started || !current.target || !current.place) return
   if (current.kind === 'section') {
     const targetKey = current.target.dataset.dragKey || ''
-    const targetId = targetKey.startsWith('section:') ? targetKey.slice(8) : ''
-    if (!targetId) return
-    await dropSection(current.id, targetId, current.place === 'after')
+    if (!targetKey) return
+    await dropGroup(current.id, targetKey, current.place === 'after')
     return
   }
   const moved = taskById(current.id)
@@ -639,14 +641,16 @@ async function refresh() {
   state.busy = true; state.error = ''
   try {
     const requestedId = String(route.params.taskId || '')
-    let tasks: Task[], sections: Section[], detail: Task | null
+    let tasks: Task[], sections: Section[], detail: Task | null, groupOrder: GroupOrder
     try {
-      [tasks, sections, detail] = await Promise.all([request<Task[]>(`?location=${location.value}`), state.archive ? Promise.resolve([] as Section[]) : request<Section[]>(`/sections?location=${location.value}`), requestedId ? request<Task>(`/${requestedId}`).catch(() => null) : Promise.resolve(null)])
+      [tasks, sections, detail, groupOrder] = await Promise.all([request<Task[]>(`?location=${location.value}`), state.archive ? Promise.resolve([] as Section[]) : request<Section[]>(`/sections?location=${location.value}`), requestedId ? request<Task>(`/${requestedId}`).catch(() => null) : Promise.resolve(null), state.archive ? Promise.resolve({ version: 0, keys: [] }) : request<GroupOrder>(`/groups/order?location=${location.value}`)])
+      if (!state.archive) localStorage.setItem(`tasks.groupOrder.${location.value}`, JSON.stringify(groupOrder))
       await cacheBucket('tasks.task', location.value, tasks); if (detail) await cacheRows('tasks.task', [detail]); if (!state.archive) await cacheBucket('tasks.section', location.value, sections)
     } catch {
       const allTasks = await cached<Task>('tasks.task'), allSections = await cached<Section>('tasks.section')
       tasks = allTasks.filter(x => String(x.location).toLowerCase() === location.value.toLowerCase())
       sections = state.archive ? [] : allSections.filter(x => String(x.location).toLowerCase() === location.value.toLowerCase())
+      groupOrder = JSON.parse(localStorage.getItem(`tasks.groupOrder.${location.value}`) || '{"version":0,"keys":[]}') as GroupOrder
       detail = requestedId ? allTasks.find(x => x.id === requestedId) || null : null
       if (!tasks.length && !sections.length && !detail) throw new Error('Нет сети и сохранённых данных для этого списка.')
       state.error = 'Нет сети. Показаны сохранённые данные.'
@@ -660,7 +664,7 @@ async function refresh() {
     }
     tasks = tasks.filter(task => !changedTasks.has(task.id)).concat(cachedTasks.filter(task => changedTasks.has(task.id) && String(task.location).toLowerCase() === location.value.toLowerCase()))
     sections = sections.filter(section => !changedSections.has(section.id)).concat(cachedSections.filter(section => changedSections.has(section.id) && String(section.location).toLowerCase() === location.value.toLowerCase()))
-    state.tasks = tasks; state.sections = sections
+    state.tasks = tasks; state.sections = sections; state.groupOrder = groupOrder
     try { state.projects = await fetch('/api/v2/planning/projects?includeArchived=true').then(response => response.ok ? response.json() as Promise<ProjectLabel[]> : []); await cacheRows('planning.project', state.projects.map(x => ({ ...x, version: 0 }))) }
     catch { const rows = await (await getOfflineStore()).listEntities('planning.project.view'); state.projects = rows.filter(x => !x.deleted).map(x => x.payload as ProjectLabel) }
     state.detail = detail
@@ -735,22 +739,18 @@ async function dropTaskBefore(sectionId: string, sourceId: string, targetId: str
     state.error = (error as Error).message
   }
 }
-async function dropSection(sourceId: string, targetId: string, after = false) {
-  if (sourceId === targetId && !after) return
-  const sections = [...state.sections], from = sections.findIndex(x => x.id === sourceId), to = sections.findIndex(x => x.id === targetId)
+async function dropGroup(sourceKey: string, targetKey: string, after = false) {
+  if (sourceKey === targetKey) return
+  const keys = [...state.groupOrder.keys], from = keys.indexOf(sourceKey), to = keys.indexOf(targetKey)
   if (from < 0 || to < 0) return
-  const [moved] = sections.splice(from, 1)
-  const to2 = sections.findIndex(x => x.id === targetId)
-  sections.splice(to2 + (after ? 1 : 0), 0, moved)
-  try { await request('/sections/order', { method: 'PUT', body: JSON.stringify({ location: location.value, expectedVersion: Math.max(...sections.map(x => x.version)), ids: sections.map(x => x.id) }) }); await refresh() }
-  catch (error) {
-    if (error instanceof TypeError) {
-      const section = sections.find(x => x.id === sourceId)!
-      await queueTask('tasks.section', section.id, section.version, { operation: 'reorder', kind: 'section', id: section.id, bucket: location.value.toLowerCase(), order: sections.map(x => ({ id: x.id, expectedVersion: x.version })) }, false, { ...section, position: sections.findIndex(x => x.id === section.id), version: section.version + 1 })
-      state.sections = sections.map((x, position) => ({ ...x, position, version: x.version + 1 })); await cacheRows('tasks.section', state.sections, true); state.error = 'Нет сети. Порядок сохранён и будет синхронизирован позже.'; return
-    }
-    state.error = (error as Error).message
-  }
+  keys.splice(from, 1)
+  keys.splice(keys.indexOf(targetKey) + (after ? 1 : 0), 0, sourceKey)
+  if (keys.every((key, index) => key === state.groupOrder.keys[index])) return
+  try {
+    const order = await request<GroupOrder>('/groups/order', { method: 'PUT', body: JSON.stringify({ location: location.value, expectedVersion: state.groupOrder.version, keys }) })
+    state.groupOrder = order
+    localStorage.setItem(`tasks.groupOrder.${location.value}`, JSON.stringify(order))
+  } catch (error) { state.error = error instanceof TypeError ? 'Нет сети. Порядок не сохранён.' : (error as Error).message; if (!(error instanceof TypeError)) await refresh() }
 }
 
 watch(() => route.fullPath, () => void refresh())
@@ -856,7 +856,7 @@ onBeforeUnmount(() => {
                     <span class="task-section-label">{{ group.title }}</span>
                   </button>
                   <button type="button" class="row-menu-trigger" :hidden="state.orderMode" :aria-label="`Действия с разделом «${group.title}»`" aria-haspopup="menu" @click.stop="triggerMenu(group.key)">⋯</button>
-                  <ReorderHandle v-if="group.kind === 'plain' && state.orderMode" :drag-kind="'section'" :drag-id="group.section.id" :label="`Перетащить раздел ${group.title}`" />
+                  <ReorderHandle v-if="state.orderMode" :drag-kind="'section'" :drag-id="group.key" :label="`Перетащить раздел ${group.title}`" />
                 </template>
               </div>
             </div>
