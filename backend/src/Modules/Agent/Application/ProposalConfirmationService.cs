@@ -100,6 +100,14 @@ public sealed class ProposalConfirmationService(
         var operation = Enum.Parse<ChangeOperation>(action.Operation, true);
         if (action.EntityType.StartsWith("knowledge.", StringComparison.Ordinal))
         {
+            if (action.EntityType == "knowledge.document" && GuidValue(payload.RootElement, "parentSectionId") is { } parentId)
+            {
+                var expectedVersion = LongValue(payload.RootElement, "expectedParentVersion");
+                var expectedPath = StringValue(payload.RootElement, "parentSectionPath");
+                var parent = await knowledge.ReadAsync(KnowledgeNodeKind.Section, parentId, cancellationToken);
+                if (parent is null || parent.Archived || expectedVersion != parent.Version || !string.Equals(expectedPath, parent.Path, StringComparison.Ordinal))
+                    throw new InvalidOperationException("Выбранный раздел изменился или больше не доступен. Подготовьте документ заново.");
+            }
             var kind = action.EntityType == "knowledge.document" ? KnowledgeNodeKind.Document
                 : action.EntityType == "knowledge.section" ? KnowledgeNodeKind.Section
                 : throw new InvalidDataException("Unsupported Knowledge entity type.");

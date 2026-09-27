@@ -85,6 +85,8 @@ public interface IChatConversationStore
 
     Task<ChatProposal?> GetProposalForTurnAsync(Guid turnId, CancellationToken cancellationToken = default);
 
+    Task<ChatProposal?> GetPendingProposalAsync(Guid conversationId, CancellationToken cancellationToken = default);
+
     Task SaveProposalAsync(ChatProposal proposal, CancellationToken cancellationToken = default);
 
     Task<int> DismissPendingProposalsAsync(Guid conversationId, CancellationToken cancellationToken = default);

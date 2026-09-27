@@ -33,6 +33,7 @@ public sealed record KnowledgeMutationResult(bool Applied, KnowledgeNodeState? C
 
 public interface IKnowledgeAgentAccess
 {
+    Task<IReadOnlyList<KnowledgeNodeState>> ListSectionsAsync(CancellationToken cancellationToken = default);
     Task<KnowledgeNodeState?> ReadAsync(
         KnowledgeNodeKind kind,
         Guid id,

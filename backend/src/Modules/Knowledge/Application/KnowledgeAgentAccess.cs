@@ -6,6 +6,11 @@ namespace PersonalDashboard.V2.Knowledge.Application;
 /// <summary>Typed, version-checked Knowledge operations for Agent proposals.</summary>
 public sealed class KnowledgeAgentAccess(KnowledgeService knowledge) : IKnowledgeAgentAccess
 {
+    public async Task<IReadOnlyList<KnowledgeNodeState>> ListSectionsAsync(CancellationToken cancellationToken = default) =>
+        (await knowledge.GetTreeAsync(cancellationToken)).Where(node => node.Kind == "section" && !node.Archived)
+            .Select(node => new KnowledgeNodeState(KnowledgeNodeKind.Section, node.Id, node.ParentId, node.Version,
+                node.Title, null, node.Path, node.Archived, node.Position)).ToArray();
+
     public Task<KnowledgeNodeState?> ReadAsync(KnowledgeNodeKind kind, Guid id, CancellationToken cancellationToken = default) =>
         knowledge.GetAgentStateAsync(kind, id, cancellationToken);
 

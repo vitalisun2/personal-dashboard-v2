@@ -279,6 +279,7 @@ public sealed class AgentTurnRoutingTests
     private sealed class KnowledgeAccess : IKnowledgeAgentAccess
     {
         public List<Guid> Reads { get; } = [];
+        public Task<IReadOnlyList<KnowledgeNodeState>> ListSectionsAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<KnowledgeNodeState>>([]);
         public Task<KnowledgeNodeState?> ReadAsync(KnowledgeNodeKind kind, Guid id, CancellationToken cancellationToken = default)
         {
             Reads.Add(id);

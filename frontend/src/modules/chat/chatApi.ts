@@ -34,7 +34,7 @@ export interface ChatTurn {
   sourceReferences: string[]
   sourceDetails?: ChatSource[]
   proposalId?: string | null
-  proposalStatus?: 'Pending' | 'Applied' | 'Dismissed' | null
+  proposalStatus?: 'Pending' | 'Applied' | 'Dismissed' | 'Stale' | 'Expired' | null
   changes?: ChatProposedChange[]
 }
 

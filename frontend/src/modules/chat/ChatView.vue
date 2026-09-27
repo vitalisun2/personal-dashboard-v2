@@ -53,6 +53,11 @@ async function send() {
       ? { mode: 'entity' as const, entityType: props.entity.entityType, entityId: props.entity.entityId, entityVersion: props.entity.entityVersion }
       : { mode: 'general' as const }
     const result = await chatApi.send(id, message, scope)
+    if (result.turn.proposalId) {
+      for (const turn of turns.value) {
+        if (turn.proposalStatus === 'Pending') turn.proposalStatus = 'Dismissed'
+      }
+    }
     turns.value.push(result.turn)
     if (created) {
       const query = { ...route.query }
@@ -89,9 +94,12 @@ async function actOnProposal(turn: ChatTurn, confirm: boolean) {
     else await chatApi.dismissProposal(activeId.value, turn.proposalId)
     turn.proposalStatus = confirm ? 'Applied' : 'Dismissed'
   } catch (cause) {
-    error.value = cause instanceof ProposalConflictError
-      ? cause.conflict.error || 'Предложение устарело. Проверьте данные перед повторной попыткой.'
-      : cause instanceof Error ? cause.message : 'Не удалось обработать предложение.'
+    if (cause instanceof ProposalConflictError) {
+      turn.proposalStatus = cause.conflict.expired ? 'Expired' : 'Stale'
+      error.value = cause.conflict.error || (cause.conflict.expired
+        ? 'Срок действия предложения истёк. Подготовьте новое предложение.'
+        : 'Предложение устарело. Проверьте данные перед повторной попыткой.')
+    } else error.value = cause instanceof Error ? cause.message : 'Не удалось обработать предложение.'
   } finally { busy.value = false }
 }
 function sourceUrl(url: string | null | undefined): string | undefined {
@@ -124,6 +132,17 @@ function snippetParts(source: ChatSource): { before: string; match: string; afte
 }
 function isShowResults(turn: ChatTurn): boolean {
   return !!turn.sourceDetails?.some(source => source.isShowResult)
+}
+function proposalStatusLabel(turn: ChatTurn): string {
+  switch (turn.proposalStatus) {
+    case 'Pending': return 'ожидает подтверждения'
+    case 'Stale': return 'устарело, требуется новый просмотр'
+    case 'Expired': return 'срок действия истёк'
+    case 'Applied': return turn.changes?.some(change => change.entityType === 'knowledge.document')
+      ? 'Документ создан' : 'Изменения применены'
+    case 'Dismissed': return 'отменено'
+    default: return 'статус неизвестен'
+  }
 }
 function onInputKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() }
@@ -177,11 +196,15 @@ watch(input, () => { void nextTick(resizeInput) })
             </div>
             <div v-if="isShowResults(turn) && turn.assistantMessage" class="chat-bubble chat-coverage-note">{{ turn.assistantMessage }}</div>
             <div v-if="turn.proposalId && turn.changes?.length" class="proposal-card">
-              <div class="proposal-heading">Предложение · {{ turn.proposalStatus === 'Pending' ? 'ожидает подтверждения' : turn.proposalStatus }}</div>
-              <p v-for="change in turn.changes" :key="change.id">{{ change.displayName }}: {{ change.preview }}</p>
+              <div class="proposal-heading">Предложение · {{ proposalStatusLabel(turn) }}</div>
+              <div v-for="change in turn.changes" :key="change.id" class="proposal-preview">
+                <strong>{{ change.displayName }}</strong>
+                <p>{{ change.preview }}</p>
+                <a v-if="turn.proposalStatus === 'Applied' && change.entityType === 'knowledge.document'" :href="`/knowledge/${change.entityId}`">Открыть документ</a>
+              </div>
               <div v-if="turn.proposalStatus === 'Pending'" class="proposal-actions">
-                <button type="button" class="confirm-button" :disabled="busy" @click="actOnProposal(turn, true)">Подтвердить</button>
-                <button type="button" class="proposal-dismiss" :disabled="busy" @click="actOnProposal(turn, false)">Отклонить</button>
+                <button type="button" class="confirm-button" :disabled="busy" @click="actOnProposal(turn, true)">{{ turn.changes.some(change => change.entityType === 'knowledge.document') ? 'Создать документ' : 'Подтвердить' }}</button>
+                <button type="button" class="proposal-dismiss" :disabled="busy" @click="actOnProposal(turn, false)">Отменить</button>
               </div>
             </div>
           </div></div>

@@ -35,8 +35,6 @@ public static class AgentApiModule
         var conversation = await chats.GetConversationAsync(conversationId, cancellationToken);
         if (conversation is null) return Results.NotFound();
 
-        // Any subsequent turn closes the prior package; the model may prepare a revised package in this turn.
-        await chats.DismissPendingProposalsAsync(conversationId, cancellationToken);
         var turns = await chats.GetRecentTurnsAsync(conversationId, 20, cancellationToken);
         var recent = turns.SelectMany(turn => new ModelMessage[]
         {
@@ -44,6 +42,9 @@ public static class AgentApiModule
             new("user", turn.UserText),
             new("assistant", FormatAssistantContext(turn))
         }).ToArray();
+        var pendingDraft = await chats.GetPendingProposalAsync(conversationId, cancellationToken);
+        if (pendingDraft is not null)
+            recent = recent.Append(ProposalDraftContext.ToMessage(pendingDraft)).ToArray();
         var turnId = Guid.NewGuid();
         AgentTurnResult result;
         try
@@ -51,7 +52,8 @@ public static class AgentApiModule
             result = await agent.RespondAsync(new AgentTurnRequest(conversationId, turnId, request.Message.Trim(), scope,
                 requestedModel, ChatModelRoute.Default, recent,
                 turns.SelectMany(turn => turn.Sources).Where(source => !source.IsChatHistory)
-                    .Reverse().DistinctBy(source => (source.Kind, source.Id)).Take(30).Reverse().ToArray()), cancellationToken);
+                    .Reverse().DistinctBy(source => (source.Kind, source.Id)).Take(30).Reverse().ToArray(),
+                PendingProposal: pendingDraft), cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (ChatModelUnavailableException)
@@ -64,11 +66,7 @@ public static class AgentApiModule
             new ChatTurnScope(result.Scope.Mode, result.Scope.EntityType, result.Scope.EntityId, result.Scope.EntityVersion),
             result.RequestedModel, result.ActualModel, result.ModelRoute, result.Sources, now, result.FallbackReason);
         ChatProposal? proposal = result.Proposal is null ? null : ToContract(result.Proposal);
-        await transactions.ExecuteAsync(async ct =>
-        {
-            await chats.AppendTurnAsync(turn, ct);
-            if (proposal is not null) await chats.SaveProposalAsync(proposal, ct);
-        }, cancellationToken);
+        await ProposalDraftPersistence.PersistTurnAsync(chats, transactions, turn, proposal, cancellationToken);
 
         try
         {

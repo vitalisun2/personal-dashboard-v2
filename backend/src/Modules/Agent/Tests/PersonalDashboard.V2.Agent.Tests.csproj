@@ -12,5 +12,8 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Application\PersonalDashboard.V2.Agent.Application.csproj" />
+    <ProjectReference Include="..\Infrastructure\PersonalDashboard.V2.Agent.Infrastructure.csproj" />
+    <ProjectReference Include="..\Api\PersonalDashboard.V2.Agent.Api.csproj" />
   </ItemGroup>
+  <ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App" /></ItemGroup>
 </Project>

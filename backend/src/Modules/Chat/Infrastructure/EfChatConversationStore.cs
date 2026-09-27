@@ -133,6 +133,16 @@ internal sealed class EfChatConversationStore(PlatformDbContext dbContext) : ICh
             Enum.Parse<ChatProposalState>(row.State), row.ConfirmationId, row.CreatedAtUtc);
     }
 
+    public async Task<ChatProposal?> GetPendingProposalAsync(Guid conversationId, CancellationToken cancellationToken = default)
+    {
+        var row = await dbContext.Set<ChatProposalRow>().AsNoTracking()
+            .Where(x => x.ConversationId == conversationId && x.State == ChatProposalState.Pending.ToString())
+            .OrderByDescending(x => x.CreatedAtUtc).FirstOrDefaultAsync(cancellationToken);
+        return row is null ? null : new ChatProposal(row.Id, row.ConversationId, row.TurnId,
+            JsonSerializer.Deserialize<IReadOnlyList<ChatProposedAction>>(row.ActionsJson, JsonOptions) ?? [],
+            Enum.Parse<ChatProposalState>(row.State), row.ConfirmationId, row.CreatedAtUtc);
+    }
+
     public async Task SaveProposalAsync(ChatProposal proposal, CancellationToken cancellationToken = default)
     {
         var row = await dbContext.Set<ChatProposalRow>().SingleOrDefaultAsync(x => x.Id == proposal.Id, cancellationToken);
