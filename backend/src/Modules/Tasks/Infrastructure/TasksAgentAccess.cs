@@ -157,7 +157,7 @@ public sealed class TasksAgentAccess(TasksService service) : ITasksAgentAccess
     }
     private static long Version(TaskMutation m) => m.ExpectedVersion ?? throw new ArgumentException("ExpectedVersion is required.");
     private static T Parse<T>(string? value) where T : struct, Enum => Enum.TryParse<T>(value, true, out var result) ? result : throw new ArgumentException($"Invalid {typeof(T).Name}.");
-    private static TaskEntityState State(TaskView x) => new(TaskEntityKind.Task, x.Id, x.Version, x.Title, x.Description, x.ProjectId is null ? null : new(x.ProjectId, x.MilestoneId, x.FeatureId), x.Location.ToString().ToLowerInvariant(), x.WorkStatus.ToString().ToLowerInvariant(), x.SectionId, null, x.Position);
+    private static TaskEntityState State(TaskView x) => new(TaskEntityKind.Task, x.Id, x.Version, x.Title, x.Description, x.ProjectId is null ? null : new(x.ProjectId, x.MilestoneId, x.FeatureId), x.Location.ToString().ToLowerInvariant(), x.WorkStatus.ToString().ToLowerInvariant(), x.SectionId, null, x.Position, x.ArchivedSectionName);
     private static TaskEntityState SectionState(TaskSectionView? x) => x is null ? null! : new(TaskEntityKind.Section, x.Id, x.Version, x.Name, null, null, null, null, null, x.Location == TaskLocation.Today ? "today" : "backlog", x.Position);
 }
 
@@ -210,7 +210,7 @@ public sealed class TaskSyncMutationHandler(ITasksAgentAccess access) : ISyncMut
         PropertyNameCaseInsensitive = true,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
-    internal static PersonalDashboard.V2.Contracts.Changes.EntitySnapshot ToSnapshot(TaskEntityState x) => new(x.Kind == TaskEntityKind.Task ? "tasks.task" : "tasks.section", x.Id, x.Version, false, JsonSerializer.SerializeToElement(new { title = x.Title, body = x.Description, projectId = x.Planning?.ProjectId, milestoneId = x.Planning?.MilestoneId, featureId = x.Planning?.FeatureId, placement = x.Placement, workStatus = x.WorkStatus, sectionId = x.SectionId, bucket = x.Bucket, position = x.Position, path = (string?)null, url = $"/tasks/{x.Id}" }));
+    internal static PersonalDashboard.V2.Contracts.Changes.EntitySnapshot ToSnapshot(TaskEntityState x) => new(x.Kind == TaskEntityKind.Task ? "tasks.task" : "tasks.section", x.Id, x.Version, false, JsonSerializer.SerializeToElement(new { title = x.Title, body = x.Description, projectId = x.Planning?.ProjectId, milestoneId = x.Planning?.MilestoneId, featureId = x.Planning?.FeatureId, placement = x.Placement, workStatus = x.WorkStatus, sectionId = x.SectionId, archivedSectionName = x.ArchivedSectionName, bucket = x.Bucket, position = x.Position, path = (string?)null, url = $"/tasks/{x.Id}" }));
 }
 
 public sealed class TaskSectionSyncMutationHandler(ITasksAgentAccess access) : ISyncMutationHandler

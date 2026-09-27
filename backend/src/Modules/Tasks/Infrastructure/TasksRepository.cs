@@ -24,6 +24,9 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
 
     public Task SaveAsync(TaskItem item, CancellationToken ct) => transaction.ExecuteAsync(async token =>
     {
+        var previousSectionId = item.Version > 1
+            ? await db.Set<TaskItem>().AsNoTracking().Where(x => x.Id == item.Id).Select(x => x.SectionId).SingleOrDefaultAsync(token)
+            : null;
         if (db.Entry(item).State == EntityState.Detached)
         {
             if (item.Version > 1)
@@ -42,6 +45,8 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
         var path = item.ProjectId is { } projectId ? await paths.ReadPathAsync(new(projectId, item.MilestoneId, item.FeatureId), token) : null;
         var payload = Payload(item, path?.Path);
         await journal.AppendAsync(new EntitySnapshot("tasks.task", item.Id, item.Version, false, JsonSerializer.SerializeToElement(payload)), token);
+        if (previousSectionId is { } oldSectionId && item.SectionId != previousSectionId)
+            await DeleteEmptySectionAsync(oldSectionId, token);
     }, ct);
 
     public async Task DeleteAsync(Guid id, CancellationToken ct)
@@ -59,6 +64,7 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
                 tombstone.UpdatedAtUtc = DateTimeOffset.UtcNow;
             }
             await journal.AppendAsync(new EntitySnapshot("tasks.task", item.Id, item.Version + 1, true, null), token);
+            if (item.SectionId is { } sectionId) await DeleteEmptySectionAsync(sectionId, token);
         }, ct);
     }
 
@@ -102,10 +108,26 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
         await transaction.ExecuteAsync(async token =>
         {
             var section = await db.Set<TaskSection>().SingleOrDefaultAsync(x => x.Id == id, token) ?? throw new KeyNotFoundException($"Section {id} was not found.");
-            if (await db.Set<TaskItem>().AnyAsync(x => x.SectionId == id, token)) throw new InvalidOperationException("Move the section's tasks before deleting it.");
+            if (await db.Set<TaskItem>().AnyAsync(x => x.SectionId == id && x.Location != TaskLocation.Archived, token)) throw new InvalidOperationException("Move the section's tasks before deleting it.");
+            // Older archived tasks retained a restrictive FK to their former section.
+            // Detach them and publish their new versions before deleting the group.
+            var archived = await db.Set<TaskItem>().Where(x => x.SectionId == id && x.Location == TaskLocation.Archived).ToListAsync(token);
+            foreach (var item in archived)
+            {
+                item.Archive(item.ArchivedSectionName ?? section.Name);
+                var path = item.ProjectId is { } projectId ? await paths.ReadPathAsync(new(projectId, item.MilestoneId, item.FeatureId), token) : null;
+                await journal.AppendAsync(new EntitySnapshot("tasks.task", item.Id, item.Version, false, JsonSerializer.SerializeToElement(Payload(item, path?.Path))), token);
+            }
             db.Remove(section);
             await journal.AppendAsync(new EntitySnapshot("tasks.section", section.Id, section.Version + 1, true, null), token);
         }, ct);
+    }
+
+    private async Task DeleteEmptySectionAsync(Guid id, CancellationToken ct)
+    {
+        if (!await db.Set<TaskSection>().AnyAsync(x => x.Id == id, ct)) return;
+        if (await db.Set<TaskItem>().AnyAsync(x => x.SectionId == id && x.Location != TaskLocation.Archived, ct)) return;
+        await DeleteSectionAsync(id, ct);
     }
 
     internal static object PayloadForProjection(TaskItem task, string? path) => Payload(task, path);
@@ -119,6 +141,7 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
         placement = Placement(task.Location),
         workStatus = task.WorkStatus.ToString().ToLowerInvariant(),
         sectionId = task.SectionId,
+        archivedSectionName = task.ArchivedSectionName,
         position = task.Position,
         path,
         url = $"/tasks/{task.Id}",

@@ -24,6 +24,7 @@ public sealed class TaskItem
     public TaskLocation Location { get; private set; }
     public TaskWorkStatus WorkStatus { get; private set; } = TaskWorkStatus.New;
     public Guid? SectionId { get; private set; }
+    public string? ArchivedSectionName { get; private set; }
     public int Position { get; private set; }
     public long Version { get; private set; } = 1;
     public DateTimeOffset UpdatedAtUtc { get; private set; } = DateTimeOffset.UtcNow;
@@ -53,7 +54,7 @@ public sealed class TaskItem
         Touch();
     }
     public void SetWorkStatus(TaskWorkStatus status) { if (Location != TaskLocation.Today) throw new InvalidOperationException("Work status applies only to Today tasks."); WorkStatus = status; Touch(); }
-    public void Archive() { Location = TaskLocation.Archived; Touch(); }
+    public void Archive(string? sectionName = null) { Location = TaskLocation.Archived; ArchivedSectionName = sectionName ?? ArchivedSectionName; SectionId = null; Touch(); }
     public void Restore(Guid? sectionId) { if (Location != TaskLocation.Archived) throw new InvalidOperationException("Only archived tasks can be restored."); Location = TaskLocation.Backlog; SectionId = ProjectId is null ? sectionId : null; WorkStatus = TaskWorkStatus.New; Touch(); }
     internal static string Required(string value) => string.IsNullOrWhiteSpace(value) ? throw new ArgumentException("Value is required.") : value.Trim();
     public void SetPosition(int position) { Position = position; Touch(); }

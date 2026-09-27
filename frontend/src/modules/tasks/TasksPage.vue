@@ -7,7 +7,7 @@ import { startReorderDrag } from '../../shared/reorderDrag'
 import ReorderHandle from '../../shared/ReorderHandle.vue'
 import { hasPendingGroupOrder, queueGroupOrder, readGroupOrder, type GroupOrderView } from './groupOrderOffline'
 
-type Task = { id: string; title: string; description: string; projectId?: string; milestoneId?: string; featureId?: string; location: string; workStatus: string; sectionId?: string; position: number; version: number }
+type Task = { id: string; title: string; description: string; projectId?: string; milestoneId?: string; featureId?: string; location: string; workStatus: string; sectionId?: string; archivedSectionName?: string; position: number; version: number }
 type Section = { id: string; name: string; location: string; position: number; version: number }
 type FeatureLabel = { id: string; title: string }
 type MilestoneLabel = { id: string; title: string; features: FeatureLabel[] }
@@ -113,7 +113,7 @@ function statusName(status: string) { return ({ '0': 'New', '1': 'InProgress', '
 function workState(status: string) { const s = statusName(status); return s === 'Done' ? 'completed' : s === 'InProgress' ? 'in_progress' : 'new' }
 function workLabel(status: string) { return ({ 'new': 'Новая', 'in_progress': 'В работе', 'completed': 'Готово' } as Record<string, string>)[workState(status)] || 'Новая' }
 function originPath(task: Task) {
-  const base = task.projectId ? (state.projects.find(p => p.id === task.projectId)?.title || 'Проект') : (state.sections.find(s => s.id === task.sectionId)?.name || 'Личное')
+  const base = task.projectId ? (state.projects.find(p => p.id === task.projectId)?.title || 'Проект') : ((isArchived(task) ? task.archivedSectionName : null) || state.sections.find(s => s.id === task.sectionId)?.name || 'Личное')
   return isArchived(task) ? `Архив · ${base}` : base
 }
 function openLinkSheet() { const task = state.detail; if (!task) return; state.linkProjectId = task.projectId || ''; state.linkMilestoneId = task.milestoneId || ''; state.linkFeatureId = task.featureId || ''; state.linkSheetOpen = true }
@@ -307,7 +307,7 @@ function deleteSectionFlow(section: Section, tasks: Task[]) {
     title: `Удалить раздел «${section.name}»?`,
     body: tasks.length ? `${tasks.length} задач будут перемещены в архив.` : 'Раздел будет удалён.',
     confirmLabel: 'Удалить',
-    onConfirm: () => { void (async () => { for (const task of tasks) await mutate(task, 'archive'); await deleteSection(section); flash('Раздел удалён') })() },
+    onConfirm: () => { void (async () => { for (const task of tasks) await mutate(task, 'archive'); if (state.sections.some(item => item.id === section.id)) await deleteSection(section); flash('Раздел удалён') })() },
   })
 }
 function deleteProjectGroupFlow(projectId: string, tasks: Task[]) {
@@ -651,7 +651,7 @@ async function queuedIds(type: string) {
 async function cacheRows(type: 'tasks.task' | 'tasks.section' | 'planning.project', rows: Array<{ id: string; version: number; [key: string]: unknown }>, force = false) {
   const store = await getOfflineStore(), now = new Date().toISOString(), pending = await queuedIds(type)
   const viewType = type === 'planning.project' ? 'planning.project.view' : `${type}.view`
-  await Promise.all(rows.filter(row => force || !pending.has(row.id)).map(row => store.putEntity({ type: viewType, id: row.id, version: row.version, payload: row, deleted: false, updatedAt: now })))
+  await Promise.all(rows.filter(row => force || !pending.has(row.id)).map(row => store.putEntity({ type: viewType, id: row.id, version: row.version, payload: JSON.parse(JSON.stringify(row)), deleted: false, updatedAt: now })))
 }
 async function cacheBucket(type: 'tasks.task' | 'tasks.section', bucket: string, rows: Array<Task | Section>) {
   const store = await getOfflineStore(), viewType = `${type}.view`, previous = await store.listEntities(viewType), ids = new Set(rows.map(row => row.id)), pending = await queuedIds(type), now = new Date().toISOString()
@@ -682,14 +682,17 @@ async function refresh() {
       state.error = 'Нет сети. Показаны сохранённые данные.'
     }
     const store = await getOfflineStore(), pending = await store.listPendingOperations(), cachedTasks = await cached<Task>('tasks.task'), cachedSections = await cached<Section>('tasks.section')
-    const changedTasks = new Set<string>(), changedSections = new Set<string>()
+    const changedTasks = new Set<string>(), changedSections = new Set<string>(), archivedSections = new Set<string>()
     for (const op of pending) {
       const order = (op.payload as { order?: Array<{ id: string }> } | undefined)?.order || []
       if (op.type === 'tasks.task') { changedTasks.add(op.id); for (const item of order) changedTasks.add(item.id) }
       if (op.type === 'tasks.section') { changedSections.add(op.id); for (const item of order) changedSections.add(item.id) }
+      const payload = op.payload as { operation?: string; sectionId?: string } | undefined
+      if (op.type === 'tasks.task' && payload?.operation === 'archive' && payload.sectionId) archivedSections.add(payload.sectionId)
     }
     tasks = tasks.filter(task => !changedTasks.has(task.id)).concat(cachedTasks.filter(task => changedTasks.has(task.id) && String(task.location).toLowerCase() === location.value.toLowerCase()))
     sections = sections.filter(section => !changedSections.has(section.id)).concat(cachedSections.filter(section => changedSections.has(section.id) && String(section.location).toLowerCase() === location.value.toLowerCase()))
+    sections = sections.filter(section => !archivedSections.has(section.id) || tasks.some(task => task.sectionId === section.id))
     state.tasks = tasks; state.sections = sections; state.groupOrder = groupOrder
     try { state.projects = await fetch('/api/v2/planning/projects?includeArchived=true').then(response => response.ok ? response.json() as Promise<ProjectLabel[]> : []); await cacheRows('planning.project', state.projects.map(x => ({ ...x, version: 0 }))) }
     catch { const rows = await (await getOfflineStore()).listEntities('planning.project.view'); state.projects = rows.filter(x => !x.deleted).map(x => x.payload as ProjectLabel) }
@@ -710,9 +713,15 @@ async function mutate(task: Task, suffix: string, method = 'POST', body: object 
       const payload = suffix === 'section'
         ? { operation: 'update', kind: 'task', id: task.id, expectedVersion: task.version, sectionId: (body as { sectionId: string }).sectionId }
         : { operation, kind: 'task', id: task.id, expectedVersion: task.version, placement, workStatus: suffix === 'status' ? (body as { status: string }).status : statusName(task.workStatus) === 'InProgress' ? 'inProgress' : statusName(task.workStatus).toLowerCase(), sectionId: suffix === 'planning' ? null : task.sectionId, ...(suffix === 'planning' && task.projectId && task.milestoneId && task.featureId ? { planning: { projectId: task.projectId, milestoneId: task.milestoneId, featureId: task.featureId } } : {}) }
-      const local = { ...task, sectionId: suffix === 'section' ? (body as { sectionId: string }).sectionId : task.sectionId, workStatus: suffix === 'status' ? (body as { status: string }).status : suffix === 'restore' || suffix === 'backlog' ? 'new' : task.workStatus, location: suffix === 'section' ? task.location : placement, version: task.version + 1 }
+      const local = { ...task, sectionId: suffix === 'archive' ? undefined : suffix === 'section' ? (body as { sectionId: string }).sectionId : task.sectionId, workStatus: suffix === 'status' ? (body as { status: string }).status : suffix === 'restore' || suffix === 'backlog' ? 'new' : task.workStatus, location: suffix === 'section' ? task.location : placement, version: task.version + 1 }
+      if (suffix === 'archive') local.archivedSectionName = state.sections.find(section => section.id === task.sectionId)?.name || task.archivedSectionName
       await queueTask('tasks.task', task.id, task.version, payload, false, local)
       state.tasks = state.tasks.filter(x => x.id !== task.id); if (String(local.location).toLowerCase() === location.value.toLowerCase()) state.tasks.push(local)
+      if (suffix === 'archive' && task.sectionId && !state.tasks.some(item => item.sectionId === task.sectionId)) {
+        state.sections = state.sections.filter(section => section.id !== task.sectionId)
+        const store = await getOfflineStore(), section = await store.getEntity('tasks.section.view', task.sectionId)
+        if (section) await store.putEntity({ ...section, deleted: true, updatedAt: new Date().toISOString() })
+      }
       if (state.detail?.id === task.id) state.detail = local
       await cacheRows('tasks.task', state.tasks, true)
       state.error = 'Нет сети. Изменение сохранено и будет синхронизировано позже.'; return
@@ -767,7 +776,9 @@ async function dropTaskBefore(sectionId: string, sourceId: string, targetId: str
 }
 async function dropGroup(sourceKey: string, targetKey: string, after = false) {
   if (sourceKey === targetKey) return
-  const keys = [...state.groupOrder.keys], from = keys.indexOf(sourceKey), to = keys.indexOf(targetKey)
+  const currentKeys = new Set([...state.sections.map(section => `section:${section.id}`), ...state.tasks.filter(task => task.projectId).map(task => `project:${task.projectId}`)])
+  const keys = [...state.groupOrder.keys.filter(key => currentKeys.has(key)), ...[...currentKeys].filter(key => !state.groupOrder.keys.includes(key))]
+  const from = keys.indexOf(sourceKey), to = keys.indexOf(targetKey)
   if (from < 0 || to < 0) return
   keys.splice(from, 1)
   keys.splice(keys.indexOf(targetKey) + (after ? 1 : 0), 0, sourceKey)
