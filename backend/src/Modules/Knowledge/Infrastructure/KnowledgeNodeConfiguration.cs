@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Metadata.Builders;
+using NpgsqlTypes;
 using PersonalDashboard.V2.Knowledge.Domain;
 
 namespace PersonalDashboard.V2.Knowledge.Infrastructure;
@@ -13,11 +14,14 @@ internal sealed class KnowledgeNodeConfiguration : IEntityTypeConfiguration<Know
         builder.Property(node => node.Type).HasConversion<string>().HasMaxLength(24).IsRequired();
         builder.Property(node => node.Title).HasMaxLength(300).IsRequired();
         builder.Property(node => node.Markdown).HasColumnType("text").IsRequired();
+        builder.Property<NpgsqlTsVector>("SearchVector")
+            .HasComputedColumnSql("to_tsvector('russian', \"Title\" || ' ' || \"Markdown\")", stored: true);
         builder.Property(node => node.Version).IsConcurrencyToken();
         builder.Property(node => node.UpdatedAt).IsRequired();
         builder.HasIndex(node => new { node.ParentId, node.Position });
         builder.HasIndex(node => node.DeletedAt);
         builder.HasIndex(node => node.ArchivedAt);
+        builder.HasIndex("SearchVector").HasMethod("GIN");
         builder.Ignore(node => node.IsDeleted);
         builder.Ignore(node => node.IsArchived);
         builder.Ignore(node => node.IsActive);

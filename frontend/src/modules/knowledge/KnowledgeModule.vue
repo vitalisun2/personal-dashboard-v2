@@ -451,7 +451,7 @@ function clearSearch() {
         </div>
         <div v-else class="results" aria-live="polite">
           <section v-if="results.length" class="group">
-            <div class="group-head"><span class="group-name">Точные совпадения</span></div>
+            <div class="group-head"><span class="group-name">Текстовые совпадения</span></div>
             <button v-for="result in results" :key="result.id" type="button" class="result" @click="openDocument(result.id)">
               <div class="result-title"><SearchHighlight :text="result.title" :query="query" /></div>
               <div class="result-path">{{ result.path }}</div>

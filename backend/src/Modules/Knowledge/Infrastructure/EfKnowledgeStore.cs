@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using NpgsqlTypes;
 using System.Text.RegularExpressions;
 using PersonalDashboard.V2.Contracts.Transactions;
 using PersonalDashboard.V2.Knowledge.Application;
@@ -44,7 +45,9 @@ internal sealed class EfKnowledgeStore(PlatformDbContext dbContext, ITransaction
                 var wordPattern = $@"\m{Regex.Escape(term)}\M";
                 query = query.Where(node =>
                     Regex.IsMatch(node.Title, wordPattern, RegexOptions.IgnoreCase) ||
-                    Regex.IsMatch(node.Markdown, wordPattern, RegexOptions.IgnoreCase));
+                    Regex.IsMatch(node.Markdown, wordPattern, RegexOptions.IgnoreCase) ||
+                    EF.Property<NpgsqlTsVector>(node, "SearchVector")
+                        .Matches(EF.Functions.PlainToTsQuery("russian", term)));
             }
             else
             {
@@ -53,7 +56,10 @@ internal sealed class EfKnowledgeStore(PlatformDbContext dbContext, ITransaction
                     EF.Functions.ILike(node.Title, pattern, "\\") || EF.Functions.ILike(node.Markdown, pattern, "\\"));
             }
             return await query
-                .OrderBy(node => node.Title)
+                .OrderByDescending(node =>
+                    Regex.IsMatch(node.Title, $@"\m{Regex.Escape(term)}\M", RegexOptions.IgnoreCase) ||
+                    Regex.IsMatch(node.Markdown, $@"\m{Regex.Escape(term)}\M", RegexOptions.IgnoreCase))
+                .ThenBy(node => node.Title)
                 .ToListAsync(cancellationToken);
         }
 
