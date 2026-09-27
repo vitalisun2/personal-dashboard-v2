@@ -31,8 +31,8 @@ const project = computed(() => state.projects.find(item => item.id === projectId
 const milestone = computed(() => project.value?.milestones.find(item => item.id === milestoneId.value) || null)
 const feature = computed(() => milestone.value?.features.find(item => item.id === featureId.value) || null)
 const depth = computed(() => feature.value ? 3 : milestone.value ? 2 : project.value ? 1 : 0)
-const taskProgress = computed(() => featureTaskProgress(linkedTasks.value))
 const linkedTasks = computed(() => state.tasks.filter(item => item.featureId === featureId.value))
+const taskProgress = computed(() => featureTaskProgress(linkedTasks.value))
 const plannedFeatureTasks = computed(() => linkedTasks.value.filter(item => taskState(item) === 'planned').sort((a, b) => a.position - b.position))
 const detailTask = computed(() => state.detailTaskId ? state.tasks.find(item => item.id === state.detailTaskId) || null : null)
 const editMilestone = computed(() => project.value?.milestones.find(item => item.id === state.editId) || null)
@@ -207,6 +207,7 @@ function openMilestone(id: string) { if (Date.now() >= suppressClickUntil) goMil
 function openFeature(id: string) { if (Date.now() >= suppressClickUntil) goFeature(id) }
 function openDetailTask(task: Task) { if (Date.now() >= suppressClickUntil) state.detailTaskId = task.id }
 function openLinkedTask(task: Task) { if (Date.now() >= suppressClickUntil) void router.push(`/tasks/${task.id}`) }
+
 async function setFeatureStatus(status: 'done' | 'active') {
   const p = project.value, m = milestone.value, f = feature.value
   if (!p || !m || !f || state.savingFeatureStatus || (status === 'done' && !taskProgress.value.canComplete)) return
@@ -235,7 +236,6 @@ async function setFeatureStatus(status: 'done' | 'active') {
     } else state.error = (error as Error).message
   } finally { state.savingFeatureStatus = false }
 }
-
 
 function startCreate(type: string) { state.createType = type; state.editType = ''; state.editId = ''; state.title = ''; state.description = ''; state.pickerOpen = false; closeContextMenu(); void nextTick(() => nameInputRef.value?.focus({ preventScroll: true })) }
 function startEdit(type: string, item: Project | Milestone | Feature | Task) { state.editType = type; state.editId = item.id; state.createType = ''; state.title = item.title; state.description = item.description; state.pickerOpen = false; closeContextMenu(); void nextTick(() => nameInputRef.value?.focus({ preventScroll: true })) }

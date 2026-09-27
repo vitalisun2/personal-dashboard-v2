@@ -820,6 +820,9 @@ onBeforeUnmount(() => {
         <button v-if="!isArchived(state.detail)" type="button" class="task-delete-icon" aria-label="Убрать задачу в архив" @click="archiveTask(state.detail)">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 13h10l1-13"/><path d="M10 11v5M14 11v5"/></svg>
         </button>
+        <button v-else type="button" class="task-delete-icon" aria-label="Удалить задачу навсегда" @click="deleteArchivedTask(state.detail)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 13h10l1-13"/><path d="M10 11v5M14 11v5"/></svg>
+        </button>
       </div>
     </section>
 
@@ -835,9 +838,6 @@ onBeforeUnmount(() => {
           </button>
           <button type="button" class="order-mode-toggle" :aria-pressed="state.orderMode" :aria-label="state.orderMode ? 'Выключить сортировку' : 'Включить сортировку'" :title="state.orderMode ? 'Выключить сортировку' : 'Включить сортировку'" @click="toggleOrderMode">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h11M19 6v12m-2.5-2.5L19 18l2.5-2.5"/></svg>
-        <button v-else type="button" class="task-delete-icon" aria-label="Удалить задачу навсегда" @click="deleteArchivedTask(state.detail)">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 13h10l1-13"/><path d="M10 11v5M14 11v5"/></svg>
-        </button>
           </button>
           <button type="button" class="plus" aria-label="Создать задачу или раздел" @click="openCreateSheet">＋</button>
         </div>
@@ -850,6 +850,10 @@ onBeforeUnmount(() => {
 
       <div v-if="!state.archive && location === 'Today'" class="task-filters">
         <button v-for="filter in filters" :key="filter.value" type="button" class="task-filter" :class="{ active: state.filter === filter.value }" @click="state.filter = filter.value"><span v-if="filter.dot" class="task-filter-dot" :class="filter.dot" />{{ filter.label }}</button>
+      </div>
+
+      <div v-if="state.archive" class="task-filters" aria-label="Фильтр архива">
+        <button v-for="filter in archiveFilters" :key="filter.value" type="button" class="task-filter" :class="{ active: state.filter === filter.value }" :aria-pressed="state.filter === filter.value" @click="state.filter = filter.value">{{ filter.label }}</button>
       </div>
 
       <div ref="scrollEl" class="scroll task-scroll">
@@ -867,10 +871,6 @@ onBeforeUnmount(() => {
                 <button type="button" class="row-menu-trigger" :hidden="state.orderMode" :aria-label="`Действия с задачей «${task.title}»`" aria-haspopup="menu" @click.stop="triggerMenu(`task:${task.id}`)">⋯</button>
                 <ReorderHandle v-if="state.orderMode" :drag-kind="'task'" :drag-id="task.id" :label="`Перетащить ${task.title}`" />
               </template>
-      <div v-if="state.archive" class="task-filters" aria-label="Фильтр архива">
-        <button v-for="filter in archiveFilters" :key="filter.value" type="button" class="task-filter" :class="{ active: state.filter === filter.value }" :aria-pressed="state.filter === filter.value" @click="state.filter = filter.value">{{ filter.label }}</button>
-      </div>
-
             </article>
           </div>
         </div>
