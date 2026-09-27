@@ -20,7 +20,7 @@ public sealed class SearchService(ISearchCandidateStore candidateStore) : ISearc
             request.Kinds, request.Context is null ? null : new SearchContextFilter(
                 request.Context.ConversationId, request.Context.Mode, request.Context.EntityType,
                 request.Context.EntityId, request.Context.EntityVersion),
-            request.UpdatedAfterUtc, request.UpdatedBeforeUtc);
+            request.UpdatedAfterUtc, request.UpdatedBeforeUtc, request.MatchMode == SearchMatchMode.Semantic);
 
         var candidateSet = await candidateStore.FindCandidatesAsync(criteria, request.Mode, cancellationToken);
         var ranked = HybridSearch.Rank(criteria, candidateSet.Candidates);
@@ -56,6 +56,7 @@ public sealed class SearchService(ISearchCandidateStore candidateStore) : ISearc
         var material = JsonSerializer.Serialize(new
         {
             query = request.Query.Trim(), mode = request.Mode,
+            matchMode = request.MatchMode,
             kinds = request.Kinds?.Order(StringComparer.OrdinalIgnoreCase).ToArray(),
             context = request.Context, after = request.UpdatedAfterUtc, before = request.UpdatedBeforeUtc, pageSize
         });

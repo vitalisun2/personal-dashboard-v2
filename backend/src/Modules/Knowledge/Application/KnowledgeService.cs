@@ -170,13 +170,30 @@ public sealed partial class KnowledgeService(IKnowledgeStore store, IEntityChang
         {
             var term = query?.Trim();
             if (string.IsNullOrEmpty(term)) return (IReadOnlyList<KnowledgeSearchResult>)[];
-            var nodes = await tx.GetLiveNodesAsync(ct);
-            return nodes.Where(n => n.Type == KnowledgeNodeType.Document &&
-                    (n.Title.Contains(term, StringComparison.OrdinalIgnoreCase) || n.Markdown.Contains(term, StringComparison.OrdinalIgnoreCase)))
-                .OrderBy(n => n.Title, StringComparer.OrdinalIgnoreCase)
-                .Select(n => new KnowledgeSearchResult(n.Id, n.Title, n.ParentId, KnowledgeTree.GetPath(nodes, n), MakeSnippet(n.Markdown, term), n.Version, n.UpdatedAt))
+            var documents = await tx.SearchLiveDocumentsAsync(term, ct);
+            var pathNodes = await LoadSearchPathNodesAsync(tx, documents, ct);
+            return documents
+                .Select(n => new KnowledgeSearchResult(n.Id, n.Title, n.ParentId, KnowledgeTree.GetPath(pathNodes, n), MakeSnippet(n.Markdown, term), n.Version, n.UpdatedAt))
                 .ToList();
         }, cancellationToken);
+
+    private static async Task<IReadOnlyCollection<KnowledgeNode>> LoadSearchPathNodesAsync(
+        IKnowledgeTransaction transaction, IReadOnlyList<KnowledgeNode> documents, CancellationToken cancellationToken)
+    {
+        var nodes = documents.ToDictionary(node => node.Id);
+        var parentIds = documents.Where(node => node.ParentId.HasValue).Select(node => node.ParentId!.Value).ToHashSet();
+        while (parentIds.Count > 0)
+        {
+            var parents = await transaction.GetLiveNodesByIdsAsync(parentIds, cancellationToken);
+            parentIds.Clear();
+            foreach (var parent in parents)
+            {
+                if (!nodes.TryAdd(parent.Id, parent)) continue;
+                if (parent.ParentId is Guid parentId && !nodes.ContainsKey(parentId)) parentIds.Add(parentId);
+            }
+        }
+        return nodes.Values;
+    }
 
     public async Task<KnowledgeNodeState?> GetAgentStateAsync(KnowledgeNodeKind kind, Guid id, CancellationToken cancellationToken = default)
     {

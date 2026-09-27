@@ -48,6 +48,12 @@ public enum SearchCoverageMode
     Exhaustive
 }
 
+public enum SearchMatchMode
+{
+    Hybrid,
+    Semantic
+}
+
 public sealed record SearchRequest(
     string Query,
     SearchCoverageMode Mode = SearchCoverageMode.Relevant,
@@ -56,7 +62,8 @@ public sealed record SearchRequest(
     DateTimeOffset? UpdatedAfterUtc = null,
     DateTimeOffset? UpdatedBeforeUtc = null,
     string? Cursor = null,
-    int? PageSize = null);
+    int? PageSize = null,
+    SearchMatchMode MatchMode = SearchMatchMode.Hybrid);
 
 public sealed record SearchSourceReference(
     string Kind,

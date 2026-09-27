@@ -34,6 +34,9 @@ internal sealed class PostgresSearchCandidateStore(
             coverageNote = "Смысловой поиск временно недоступен; показаны текстовые совпадения.";
         }
 
+        if (criteria.SemanticOnly && queryEmbedding is null)
+            return new SearchCandidateSet([], false, "Смысловой поиск временно недоступен.");
+
         await db.Database.OpenConnectionAsync(cancellationToken);
         var candidates = await ReadCandidatesAsync(criteria, queryEmbedding, mode, cancellationToken);
         var embeddingsPending = await HasPendingEmbeddingsAsync(cancellationToken);
@@ -62,8 +65,14 @@ internal sealed class PostgresSearchCandidateStore(
             ? "CASE WHEN chunk.embedding_model = @embedding_model AND chunk.embedding IS NOT NULL THEN 1 - (chunk.embedding <=> CAST(@embedding AS vector)) ELSE NULL END"
             : "NULL::double precision";
         var semanticMatch = hasEmbedding
-            ? "OR (chunk.embedding_model = @embedding_model AND chunk.embedding IS NOT NULL AND 1 - (chunk.embedding <=> CAST(@embedding AS vector)) >= @minimum_similarity)"
-            : string.Empty;
+            ? "chunk.embedding_model = @embedding_model AND chunk.embedding IS NOT NULL AND 1 - (chunk.embedding <=> CAST(@embedding AS vector)) >= @minimum_similarity"
+            : "FALSE";
+        var matchPredicate = criteria.SemanticOnly
+            ? semanticMatch
+            : $"chunk.searchable_text ILIKE @pattern ESCAPE '\\' OR chunk.searchable_text ILIKE ANY(CAST(@term_patterns AS text[])) OR chunk.search_vector @@ to_tsquery('simple', @fts_query) OR ({semanticMatch})";
+        var ordering = criteria.SemanticOnly
+            ? $"{semanticSelect} DESC NULLS LAST, source.kind, source.id, chunk.chunk_index"
+            : $"(chunk.searchable_text ILIKE @pattern ESCAPE '\\') DESC, {semanticSelect} DESC NULLS LAST, ts_rank_cd(chunk.search_vector, to_tsquery('simple', @fts_query)) DESC, source.kind, source.id, chunk.chunk_index";
         var limit = mode == SearchCoverageMode.Exhaustive ? string.Empty : $"LIMIT {RelevantCandidateLimit}";
         var terms = SearchTerms.Significant(criteria.Query);
         var ftsQuery = string.Join(" | ", terms);
@@ -88,15 +97,8 @@ internal sealed class PostgresSearchCandidateStore(
                 AND (CAST(@entity_type AS text) IS NULL OR source.chat_entity_type = CAST(@entity_type AS text))
                 AND (CAST(@entity_id AS uuid) IS NULL OR source.chat_entity_id = CAST(@entity_id AS uuid))
                 AND (CAST(@entity_version AS bigint) IS NULL OR source.chat_entity_version = CAST(@entity_version AS bigint))))
-               AND (
-                   chunk.searchable_text ILIKE @pattern ESCAPE '\'
-                   OR chunk.searchable_text ILIKE ANY(CAST(@term_patterns AS text[]))
-                   OR chunk.search_vector @@ to_tsquery('simple', @fts_query)
-                   {semanticMatch})
-             ORDER BY (chunk.searchable_text ILIKE @pattern ESCAPE '\') DESC,
-                      {semanticSelect} DESC NULLS LAST,
-                      ts_rank_cd(chunk.search_vector, to_tsquery('simple', @fts_query)) DESC,
-                      source.kind, source.id, chunk.chunk_index
+               AND ({matchPredicate})
+             ORDER BY {ordering}
              {limit};
             """;
 

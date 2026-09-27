@@ -1,4 +1,5 @@
 export type SearchCoverageMode = 'relevant' | 'exhaustive'
+export type SearchMatchMode = 'hybrid' | 'semantic'
 export type SearchChatContext = {
   conversationId: string
   turnId: string
@@ -18,6 +19,7 @@ export type SearchRequest = {
   updatedBeforeUtc?: string
   cursor?: string
   pageSize?: number
+  matchMode?: SearchMatchMode
 }
 
 export type SearchSourceReference = {

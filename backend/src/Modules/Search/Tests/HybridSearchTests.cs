@@ -44,6 +44,19 @@ public sealed class HybridSearchTests
         Assert.True(ranked.Single(hit => hit.Id == semanticOnly.Id).IsSemantic);
     }
 
+    [Fact]
+    public void SemanticModeRanksByVectorAndMarksEveryResultSemantic()
+    {
+        var source = Source("Декор площади");
+        var ranked = HybridSearch.Rank(new SearchCriteria("декор", SemanticOnly: true),
+        [
+            new SearchCandidate(source, 0, "Декор площади", SemanticScore: .8, FullTextScore: .9)
+        ]);
+
+        Assert.Single(ranked);
+        Assert.True(ranked[0].IsSemantic);
+    }
+
     private static IndexedSource Source(string title)
     {
         var id = Guid.NewGuid();

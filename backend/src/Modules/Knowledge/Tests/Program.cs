@@ -95,6 +95,17 @@ sealed class MemoryKnowledgeStore : IKnowledgeStore
         public Task<IReadOnlyList<KnowledgeNode>> GetLiveNodesAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<KnowledgeNode>>(nodes.Where(node => node.IsActive).ToArray());
 
+        public Task<IReadOnlyList<KnowledgeNode>> SearchLiveDocumentsAsync(string term, CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<KnowledgeNode>>(nodes.Where(node => node.IsActive &&
+                node.Type == KnowledgeNodeType.Document &&
+                (node.Title.Contains(term, StringComparison.OrdinalIgnoreCase) ||
+                 node.Markdown.Contains(term, StringComparison.OrdinalIgnoreCase)))
+                .OrderBy(node => node.Title, StringComparer.OrdinalIgnoreCase).ToArray());
+
+        public Task<IReadOnlyList<KnowledgeNode>> GetLiveNodesByIdsAsync(IReadOnlyCollection<Guid> ids,
+            CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<KnowledgeNode>>(nodes.Where(node => node.IsActive && ids.Contains(node.Id)).ToArray());
+
         public Task<IReadOnlyList<KnowledgeNode>> GetAllNodesAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<KnowledgeNode>>(nodes.ToArray());
 

@@ -32,6 +32,28 @@ internal sealed class EfKnowledgeStore(PlatformDbContext dbContext, ITransaction
                 .Where(node => node.DeletedAt == null && node.ArchivedAt == null)
                 .ToListAsync(cancellationToken);
 
+        public async Task<IReadOnlyList<KnowledgeNode>> SearchLiveDocumentsAsync(string term, CancellationToken cancellationToken)
+        {
+            var pattern = LiteralPattern(term);
+            return await dbContext.Set<KnowledgeNode>()
+                .AsNoTracking()
+                .Where(node => node.DeletedAt == null && node.ArchivedAt == null &&
+                    node.Type == KnowledgeNodeType.Document &&
+                    (EF.Functions.ILike(node.Title, pattern, "\\") || EF.Functions.ILike(node.Markdown, pattern, "\\")))
+                .OrderBy(node => node.Title)
+                .ToListAsync(cancellationToken);
+        }
+
+        public async Task<IReadOnlyList<KnowledgeNode>> GetLiveNodesByIdsAsync(IReadOnlyCollection<Guid> ids,
+            CancellationToken cancellationToken)
+        {
+            if (ids.Count == 0) return [];
+            return await dbContext.Set<KnowledgeNode>()
+                .AsNoTracking()
+                .Where(node => ids.Contains(node.Id) && node.DeletedAt == null && node.ArchivedAt == null)
+                .ToListAsync(cancellationToken);
+        }
+
         public async Task<IReadOnlyList<KnowledgeNode>> GetAllNodesAsync(CancellationToken cancellationToken) =>
             await dbContext.Set<KnowledgeNode>().ToListAsync(cancellationToken);
 
@@ -39,5 +61,10 @@ internal sealed class EfKnowledgeStore(PlatformDbContext dbContext, ITransaction
             await dbContext.Set<KnowledgeNode>().AddAsync(node, cancellationToken);
 
         public Task SaveChangesAsync(CancellationToken cancellationToken) => dbContext.SaveChangesAsync(cancellationToken);
+
+        private static string LiteralPattern(string term) =>
+            "%" + term.Replace("\\", "\\\\", StringComparison.Ordinal)
+                .Replace("%", "\\%", StringComparison.Ordinal)
+                .Replace("_", "\\_", StringComparison.Ordinal) + "%";
     }
 }

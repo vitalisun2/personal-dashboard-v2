@@ -16,6 +16,8 @@ public interface IKnowledgeSearchPublisher
 public interface IKnowledgeTransaction
 {
     Task<IReadOnlyList<KnowledgeNode>> GetLiveNodesAsync(CancellationToken cancellationToken);
+    Task<IReadOnlyList<KnowledgeNode>> SearchLiveDocumentsAsync(string term, CancellationToken cancellationToken);
+    Task<IReadOnlyList<KnowledgeNode>> GetLiveNodesByIdsAsync(IReadOnlyCollection<Guid> ids, CancellationToken cancellationToken);
     Task<IReadOnlyList<KnowledgeNode>> GetAllNodesAsync(CancellationToken cancellationToken);
     Task AddAsync(KnowledgeNode node, CancellationToken cancellationToken);
     Task SaveChangesAsync(CancellationToken cancellationToken);

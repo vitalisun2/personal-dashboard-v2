@@ -2,6 +2,8 @@
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { requestSync, subscribeSyncStatus, type SyncStatus } from '../../offline/runtime'
+import SearchHighlight from '../../shared/SearchHighlight.vue'
+import { search as searchIndexed, type SearchHit } from '../search/searchApi'
 import {
   cacheServerKnowledge, getCachedKnowledge, getKnowledgeConflicts, loadKnowledgeTree,
   pendingKnowledgeCount, queueKnowledgeDelete, queueKnowledgeUpsert, searchKnowledge,
@@ -13,9 +15,12 @@ const route = useRoute()
 const router = useRouter()
 const nodes = ref<KnowledgeNode[]>([])
 const results = ref<KnowledgeSearchResult[]>([])
+const indexedHits = ref<SearchHit[]>([])
 const expanded = ref(new Set<string>())
 const query = ref(String(route.query.q || ''))
-const searchLoading = ref(false)
+const exactSearchLoading = ref(false)
+const semanticSearchLoading = ref(false)
+const semanticSearchError = ref('')
 const orderMode = ref(false)
 const busy = ref(false)
 const error = ref('')
@@ -63,6 +68,12 @@ const documentId = computed(() => {
 })
 const document = computed(() => nodes.value.find(node => node.id === documentId.value && node.kind === 'document'))
 const isSearching = computed(() => query.value.trim().length > 0)
+const similarResults = computed(() => {
+  const exactIds = new Set(results.value.map(result => result.id))
+  return indexedHits.value.filter(hit => hit.source.kind === 'knowledge.document' && !exactIds.has(hit.source.id))
+})
+const searchLoading = computed(() => exactSearchLoading.value || semanticSearchLoading.value)
+const hasSearchResults = computed(() => results.value.length > 0 || similarResults.value.length > 0)
 const collapseLabel = computed(() => {
   const ids = sectionsWithDepth.value.map(item => item.node.id)
   const allOpen = ids.length > 0 && ids.every(id => expanded.value.has(id))
@@ -140,22 +151,27 @@ async function runSearch() {
   const revision = ++searchRevision
   const term = query.value.trim()
   results.value = []
+  indexedHits.value = []
   error.value = ''
+  semanticSearchError.value = ''
   if (!term) {
-    searchLoading.value = false
+    exactSearchLoading.value = false
+    semanticSearchLoading.value = false
     return
   }
 
-  searchLoading.value = true
+  exactSearchLoading.value = true
+  semanticSearchLoading.value = true
   orderMode.value = false
-  try {
-    const found = await searchKnowledge(term)
-    if (revision === searchRevision) results.value = found
-  } catch (err) {
-    if (revision === searchRevision) setError(err)
-  } finally {
-    if (revision === searchRevision) searchLoading.value = false
-  }
+  const exactSearch = searchKnowledge(term)
+    .then(found => { if (revision === searchRevision) results.value = found })
+    .catch(err => { if (revision === searchRevision) setError(err) })
+    .finally(() => { if (revision === searchRevision) exactSearchLoading.value = false })
+  const semanticSearch = searchIndexed({ query: term, mode: 'relevant', kinds: ['knowledge.document'], pageSize: 20, matchMode: 'semantic' })
+    .then(found => { if (revision === searchRevision) indexedHits.value = found.hits })
+    .catch(() => { if (revision === searchRevision) semanticSearchError.value = 'Поиск по смыслу временно недоступен.' })
+    .finally(() => { if (revision === searchRevision) semanticSearchLoading.value = false })
+  await Promise.allSettled([exactSearch, semanticSearch])
 }
 function scheduleSearch() {
   if (searchTimer) clearTimeout(searchTimer)
@@ -380,13 +396,26 @@ function clearSearch() {
           <p v-if="!nodes.length" class="empty">База знаний пока пуста. Создайте первый документ или раздел.</p>
         </div>
         <div v-else class="results" aria-live="polite">
-          <p v-if="searchLoading" class="empty" role="status">Ищем…</p>
-          <button v-for="result in results" v-else :key="result.id" type="button" class="result" @click="openDocument(result.id)">
-            <div class="result-title">{{ result.title }}</div>
-            <div class="result-path">{{ result.path }}</div>
-            <div class="result-snippet">«{{ result.snippet }}»</div>
-          </button>
-          <p v-if="!searchLoading && !results.length && !error" class="empty">Ничего не найдено</p>
+          <section v-if="results.length" class="group">
+            <div class="group-head"><span class="group-name">Точные совпадения</span></div>
+            <button v-for="result in results" :key="result.id" type="button" class="result" @click="openDocument(result.id)">
+              <div class="result-title"><SearchHighlight :text="result.title" :query="query" /></div>
+              <div class="result-path">{{ result.path }}</div>
+              <div class="result-snippet">«<SearchHighlight :text="result.snippet" :query="query" />»</div>
+            </button>
+          </section>
+          <section v-if="similarResults.length" class="group semantic">
+            <div class="group-head"><span class="group-name">Похожие по смыслу</span></div>
+            <button v-for="result in similarResults" :key="result.source.id" type="button" class="result" @click="openDocument(result.source.id)">
+              <div class="result-title">{{ result.source.title }}</div>
+              <div class="result-path">{{ result.source.path }}</div>
+              <div class="result-snippet">«{{ result.source.snippet }}»</div>
+            </button>
+          </section>
+          <p v-if="semanticSearchLoading && results.length" class="empty" role="status">Ищем похожие по смыслу…</p>
+          <p v-else-if="searchLoading && !hasSearchResults" class="empty" role="status">Ищем…</p>
+          <p v-if="semanticSearchError" class="empty" role="status">{{ semanticSearchError }}</p>
+          <p v-if="!searchLoading && !hasSearchResults && !error" class="empty">Ничего не найдено</p>
         </div>
       </div>
     </template>

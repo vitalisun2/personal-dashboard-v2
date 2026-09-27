@@ -15,7 +15,9 @@ public static class HybridSearch
         var terms = SearchTerms.Significant(query);
         var filtered = candidates.Where(c => PassesFilters(c.Source, request))
             .Select(c => (Candidate: c, Lexical: LexicalScore(query, terms, c)))
-            .Where(x => x.Lexical > 0 || x.Candidate.SemanticScore is > 0 || x.Candidate.FullTextScore is > 0)
+            .Where(x => request.SemanticOnly
+                ? x.Candidate.SemanticScore is > 0
+                : x.Lexical > 0 || x.Candidate.SemanticScore is > 0 || x.Candidate.FullTextScore is > 0)
             .ToArray();
 
         var lexicalRanks = Ranks(filtered, x => x.Lexical);
@@ -25,7 +27,7 @@ public static class HybridSearch
         return filtered.GroupBy(x => (x.Candidate.Source.Kind, x.Candidate.Source.Id))
             .Select(group =>
             {
-                var best = group.Select(x => (Row: x, Score: Fused(x, lexicalRanks, fullTextRanks, semanticRanks)))
+                var best = group.Select(x => (Row: x, Score: Fused(x, lexicalRanks, fullTextRanks, semanticRanks, request.SemanticOnly)))
                     .OrderByDescending(x => x.Score).ThenBy(x => x.Row.Candidate.ChunkIndex).First();
                 var source = best.Row.Candidate.Source;
                 var hasLexicalMatch = group.Any(x => x.Lexical > 0 || x.Candidate.FullTextScore is > 0);
@@ -34,7 +36,7 @@ public static class HybridSearch
                     source.ChatContext,
                     Excerpt(best.Row.Candidate.Text, query),
                     string.Equals(source.Kind, "chat.turn", StringComparison.OrdinalIgnoreCase),
-                    IsSemantic: !hasLexicalMatch, best.Score);
+                    IsSemantic: request.SemanticOnly || !hasLexicalMatch, best.Score);
             })
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.Kind, StringComparer.OrdinalIgnoreCase)
@@ -54,10 +56,11 @@ public static class HybridSearch
     private static double Fused((SearchCandidate Candidate, double Lexical) row,
         IReadOnlyDictionary<(string Kind, Guid Id, int Chunk), int> lexical,
         IReadOnlyDictionary<(string Kind, Guid Id, int Chunk), int> fullText,
-        IReadOnlyDictionary<(string Kind, Guid Id, int Chunk), int> semantic)
+        IReadOnlyDictionary<(string Kind, Guid Id, int Chunk), int> semantic,
+        bool semanticOnly)
     {
         var key = (row.Candidate.Source.Kind, row.Candidate.Source.Id, row.Candidate.ChunkIndex);
-        return Contribution(lexical, key) + Contribution(fullText, key) + Contribution(semantic, key);
+        return Contribution(semantic, key) + (semanticOnly ? 0 : Contribution(lexical, key) + Contribution(fullText, key));
     }
 
     private static double Contribution(IReadOnlyDictionary<(string Kind, Guid Id, int Chunk), int> ranks, (string Kind, Guid Id, int Chunk) key)

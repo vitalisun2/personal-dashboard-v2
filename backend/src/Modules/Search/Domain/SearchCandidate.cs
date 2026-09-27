@@ -22,7 +22,7 @@ public sealed record SearchContextFilter(Guid? ConversationId = null, string? Mo
 
 public sealed record SearchCriteria(
     string Query, bool Exhaustive = false, IReadOnlyList<string>? Kinds = null, SearchContextFilter? Context = null,
-    DateTimeOffset? UpdatedAfterUtc = null, DateTimeOffset? UpdatedBeforeUtc = null);
+    DateTimeOffset? UpdatedAfterUtc = null, DateTimeOffset? UpdatedBeforeUtc = null, bool SemanticOnly = false);
 
 public sealed record RankedSource(
     string Kind, Guid Id, long Version, string? Url, string Title, string? Path, DateTimeOffset UpdatedAtUtc,
