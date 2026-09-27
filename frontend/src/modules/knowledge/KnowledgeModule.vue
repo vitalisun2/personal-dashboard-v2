@@ -4,16 +4,14 @@ import { useRoute, useRouter } from 'vue-router'
 import { requestSync, subscribeSyncStatus, type SyncStatus } from '../../offline/runtime'
 import {
   cacheServerKnowledge, getCachedKnowledge, getKnowledgeConflicts, loadKnowledgeTree,
-  pendingKnowledgeCount, queueKnowledgeDelete, queueKnowledgeUpsert, searchKnowledge,
-  type KnowledgeNode, type SearchHit,
+  pendingKnowledgeCount, queueKnowledgeDelete, queueKnowledgeUpsert,
+  type KnowledgeNode,
 } from './knowledgeApi'
 import './knowledge.css'
 
 const route = useRoute()
 const router = useRouter()
 const nodes = ref<KnowledgeNode[]>([])
-const results = ref<SearchHit[]>([])
-const localResultIds = ref(new Set<string>())
 const expanded = ref(new Set<string>())
 const query = ref(String(route.query.q || ''))
 const orderMode = ref(false)
@@ -63,17 +61,6 @@ const documentId = computed(() => {
 })
 const document = computed(() => nodes.value.find(node => node.id === documentId.value && node.kind === 'document'))
 const isSearching = computed(() => query.value.trim().length > 0)
-const searchGroups = computed(() => {
-  const lexical = results.value.filter(hit => hit.matchKind === 'lexical')
-  const semantic = results.value.filter(hit => hit.matchKind === 'semantic')
-  const groups = [
-    { kind: 'lexical', title: 'Точные совпадения', symbol: 'Aa', hits: lexical },
-    { kind: 'semantic', title: 'По смыслу', symbol: '≈', hits: semantic },
-  ]
-  const term = query.value.trim()
-  const longQuery = term.split(/\s+/).length >= 4 || term.length > 28
-  return (longQuery ? groups.reverse() : groups).filter(group => group.hits.length > 0)
-})
 const collapseLabel = computed(() => {
   const ids = sectionsWithDepth.value.map(item => item.node.id)
   const allOpen = ids.length > 0 && ids.every(id => expanded.value.has(id))
@@ -124,7 +111,6 @@ async function load() {
       nodes.value = await getCachedKnowledge()
       await refreshSyncState()
     }
-    if (isSearching.value) await runSearch()
   } catch (err) { if (navigator.onLine) setError(err) }
 }
 async function refreshSyncState() {
@@ -146,41 +132,7 @@ function handleSyncStatus(status: SyncStatus) {
     void getCachedKnowledge().then(cached => { nodes.value = cached; return refreshSyncState() }).catch(setError)
   }
 }
-let searchRevision = 0
-async function runSearch() {
-  const revision = ++searchRevision
-  error.value = ''
-  results.value = []
-  localResultIds.value = new Set()
-  if (!query.value.trim()) return
-  orderMode.value = false
-  const term = query.value.trim().toLocaleLowerCase()
-  const localHits = nodes.value.filter(node => node.kind === 'document' && `${node.title} ${node.markdown}`.toLocaleLowerCase().includes(term))
-  try {
-    if (navigator.onLine) {
-      const response = await searchKnowledge(query.value.trim())
-      if (revision !== searchRevision) return
-      const seen = new Set(response.hits.map(hit => hit.source.id))
-      const supplements: SearchHit[] = localHits.filter(node => !seen.has(node.id)).map(node => ({ source: { kind: 'knowledge.document', id: node.id, version: node.version, url: `/knowledge/${node.id}`, title: node.title, path: node.path, snippet: node.markdown.slice(0, 180), updatedAtUtc: '' }, score: 0, matchKind: 'lexical' }))
-      localResultIds.value = new Set(supplements.map(hit => hit.source.id))
-      results.value = [...response.hits, ...supplements]
-    } else {
-      localResultIds.value = new Set(localHits.map(node => node.id))
-      results.value = localHits.map(node => ({ source: { kind: 'knowledge.document', id: node.id, version: node.version, url: `/knowledge/${node.id}`, title: node.title, path: node.path, snippet: node.markdown.slice(0, 180), updatedAtUtc: '' }, score: 0, matchKind: 'lexical' }))
-    }
-  } catch (err) {
-    if (revision !== searchRevision) return
-    setError(err)
-    localResultIds.value = new Set(localHits.map(node => node.id))
-    results.value = localHits.map(node => ({ source: { kind: 'knowledge.document', id: node.id, version: node.version, url: `/knowledge/${node.id}`, title: node.title, path: node.path, snippet: node.markdown.slice(0, 180), updatedAtUtc: '' }, score: 0, matchKind: 'lexical' }))
-  }
-}
-watch(() => route.query.q, value => { query.value = String(value || ''); void runSearch() })
-watch(query, value => {
-  const q = value.trim()
-  if (q !== String(route.query.q || '')) void router.replace({ query: { ...route.query, ...(q ? { q } : { q: undefined }) } })
-  void runSearch()
-})
+watch(() => route.query.q, value => { query.value = String(value || '') })
 watch(documentId, id => { if (id && !nodes.value.some(node => node.id === id)) void load() })
 watch(documentId, () => { titleEditing.value = false; markdownEditing.value = false })
 watch(createOpen, open => {
@@ -336,28 +288,6 @@ function clearSearch() {
   searchInput.value?.focus({ preventScroll: true })
 }
 
-const STOP_WORDS = new Set(['где', 'что', 'как', 'мы', 'про', 'это', 'там', 'под', 'для', 'вот', 'когда', 'найди', 'поиск', 'делали', 'было'])
-function queryWords(q: string): string[] {
-  return q.toLocaleLowerCase().replace(/[.,!?;:()]/g, ' ').split(/\s+/).filter(Boolean)
-}
-function escapeHtml(value: string): string {
-  return String(value).replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] || char)
-}
-function regexEscape(value: string): string {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-function highlight(text: string, rawQuery: string): string {
-  let out = escapeHtml(text)
-  for (const word of queryWords(rawQuery)) {
-    if (word.length >= 3 && !STOP_WORDS.has(word)) {
-      out = out.replace(new RegExp(`(${regexEscape(word)})`, 'ig'), '<mark class="exact">$1</mark>')
-    }
-  }
-  return out
-}
-function resultPath(hit: SearchHit): string {
-  return hit.source.path.split(' / ').slice(0, -1).join(' › ')
-}
 </script>
 
 <template>
@@ -409,18 +339,7 @@ function resultPath(hit: SearchHit): string {
           />
           <p v-if="!nodes.length" class="empty">База знаний пока пуста. Создайте первый документ или раздел.</p>
         </div>
-        <div v-else class="results">
-          <p v-if="localResultIds.size" class="knowledge-local-note">{{ isOnline ? 'Дополнительно найдено в локальной копии.' : 'Поиск выполнен по сохранённым документам (офлайн).' }}</p>
-          <section v-for="group in searchGroups" :key="group.kind" class="group" :class="group.kind === 'semantic' ? 'semantic' : 'exact'">
-            <div class="group-head"><span class="group-name"><span class="kind">{{ group.symbol }}</span>{{ group.title }}</span><span>{{ group.hits.length }}</span></div>
-            <button v-for="hit in group.hits" :key="hit.source.id" type="button" class="result" :class="{ 'is-local-result': localResultIds.has(hit.source.id) }" @click="openDocument(hit.source.id)">
-              <div class="result-title" v-html="group.kind === 'lexical' ? highlight(hit.source.title, query) : escapeHtml(hit.source.title)"></div>
-              <div class="result-path">{{ resultPath(hit) }}</div>
-              <div class="result-snippet" v-html="group.kind === 'lexical' ? highlight(hit.source.snippet, query) : escapeHtml(hit.source.snippet)"></div>
-            </button>
-          </section>
-          <p v-if="!results.length" class="empty">Ничего не найдено</p>
-        </div>
+        <p v-else class="empty" role="status">Функционал не реализован</p>
       </div>
     </template>
 
