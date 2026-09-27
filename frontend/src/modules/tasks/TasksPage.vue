@@ -8,7 +8,9 @@ import ReorderHandle from '../../shared/ReorderHandle.vue'
 
 type Task = { id: string; title: string; description: string; projectId?: string; milestoneId?: string; featureId?: string; location: string; workStatus: string; sectionId?: string; position: number; version: number }
 type Section = { id: string; name: string; location: string; position: number; version: number }
-type ProjectLabel = { id: string; title: string }
+type FeatureLabel = { id: string; title: string }
+type MilestoneLabel = { id: string; title: string; features: FeatureLabel[] }
+type ProjectLabel = { id: string; title: string; milestones: MilestoneLabel[] }
 type MenuItem = { label: string; danger?: boolean; action: () => void }
 type GroupView = { kind: 'plain'; key: string; title: string; section: Section; tasks: Task[] } | { kind: 'project'; key: string; title: string; projectId: string; tasks: Task[] }
 type SwipeState = { key: string; pointerId: number; startX: number; startY: number; moved: boolean; long: boolean; timer: number }
@@ -25,6 +27,7 @@ const state = reactive({
   title: '', description: '', sectionId: '',
   renaming: null as null | { kind: 'task' | 'section'; id: string; value: string },
   detailEditing: '' as '' | 'title' | 'description',
+  linkSheetOpen: false, linkProjectId: '', linkMilestoneId: '', linkFeatureId: '',
 })
 const location = computed(() => state.archive ? 'Archived' : state.bucket === 'Сегодня' ? 'Today' : 'Backlog')
 const filtered = computed(() => state.tasks.filter(task => !state.detail || task.id === state.detail.id).filter(task => state.filter === 'all' || statusName(task.workStatus) === state.filter))
@@ -53,7 +56,12 @@ const allOpen = computed(() => {
 const showEmpty = computed(() => state.archive ? state.tasks.length === 0 && !state.busy : groups.value.length === 0 && !state.busy)
 const emptyText = computed(() => state.busy ? 'Загружаем задачи…' : state.archive ? 'Архив пока пуст.' : 'Здесь пока нет задач.')
 const detailOrigin = computed(() => state.detail ? originPath(state.detail) : '')
-const detailMoveLabel = computed(() => { const task = state.detail; if (!task) return ''; return isArchived(task) ? 'В Backlog' : isToday(task) ? 'В Backlog' : 'В Сегодня' })
+const selectedProject = computed(() => state.projects.find(x => x.id === state.linkProjectId))
+const selectedMilestone = computed(() => selectedProject.value?.milestones.find(x => x.id === state.linkMilestoneId))
+const selectedFeature = computed(() => selectedMilestone.value?.features.find(x => x.id === state.linkFeatureId))
+const detailPlanningPath = computed(() => { const task = state.detail; if (!task?.featureId) return ''; const p = state.projects.find(x => x.id === task.projectId), m = p?.milestones.find(x => x.id === task.milestoneId), f = m?.features.find(x => x.id === task.featureId); return p && m && f ? `${p.title} › ${m.title} › ${f.title}` : '' })
+const canMoveLinkToPlan = computed(() => Boolean(state.detail && String(state.detail.location).toLowerCase() === 'backlog' && selectedFeature.value))
+const detailMoveLabel = computed(() => { const task = state.detail; if (!task) return ''; return isArchived(task) || isToday(task) || String(task.location).toLowerCase() === 'planned' ? 'В Backlog' : 'В Сегодня' })
 const renamingKey = computed(() => state.renaming ? (state.renaming.kind === 'section' ? `section:${state.renaming.id}` : `task:${state.renaming.id}`) : '')
 const renamingValue = computed({ get: () => state.renaming?.value ?? '', set: (value: string) => { if (state.renaming) state.renaming.value = value } })
 const filters = [{ value: 'all', label: 'Все', dot: '' }, { value: 'New', label: 'Новые', dot: 'new' }, { value: 'InProgress', label: 'В работе', dot: 'work' }, { value: 'Done', label: 'Готово', dot: 'done' }]
@@ -102,6 +110,28 @@ function workLabel(status: string) { return ({ 'new': 'Новая', 'in_progress
 function originPath(task: Task) {
   const base = task.projectId ? (state.projects.find(p => p.id === task.projectId)?.title || 'Проект') : (state.sections.find(s => s.id === task.sectionId)?.name || 'Личное')
   return isArchived(task) ? `Архив · ${base}` : base
+}
+function openLinkSheet() { const task = state.detail; if (!task) return; state.linkProjectId = task.projectId || ''; state.linkMilestoneId = task.milestoneId || ''; state.linkFeatureId = task.featureId || ''; state.linkSheetOpen = true }
+function chooseLinkProject(id: string) { state.linkProjectId = id; state.linkMilestoneId = ''; state.linkFeatureId = '' }
+function chooseLinkMilestone(id: string) { state.linkMilestoneId = id; state.linkFeatureId = '' }
+async function savePlanningLink(moveToPlanning: boolean) {
+  const task = state.detail, feature = selectedFeature.value
+  if (!task || !feature || !selectedProject.value || !selectedMilestone.value) return
+  const ids = { projectId: selectedProject.value.id, milestoneId: selectedMilestone.value.id, featureId: feature.id }
+  try {
+    const updated = await request<Task>(`/${task.id}/planning-link`, { method: 'PUT', body: JSON.stringify({ expectedVersion: task.version, ...ids, moveToPlanning }) })
+    state.detail = updated; state.tasks = state.tasks.map(x => x.id === updated.id ? updated : x); state.linkSheetOpen = false; await refresh(); flash(moveToPlanning ? 'Перенесено в планирование' : 'Фича назначена')
+    if (moveToPlanning) await router.push(`/planning/projects/${ids.projectId}/milestones/${ids.milestoneId}/features/${ids.featureId}`)
+  } catch (error) {
+    if (!(error instanceof TypeError)) { state.error = (error as Error).message; return }
+    const local: Task = { ...task, ...ids, sectionId: undefined, ...(moveToPlanning ? { location: 'planned', workStatus: 'new' } : {}), version: task.version + 1 }
+    const payload = { operation: 'update', kind: 'task', id: task.id, expectedVersion: task.version, ...(moveToPlanning ? { placement: 'planned' } : {}), workStatus: statusName(task.workStatus) === 'InProgress' ? 'inProgress' : statusName(task.workStatus).toLowerCase(), sectionId: null, planning: ids }
+    await queueTask('tasks.task', task.id, task.version, payload, false, local)
+    state.detail = local; state.tasks = state.tasks.map(x => x.id === local.id ? local : x); state.linkSheetOpen = false
+    state.error = 'Нет сети. Изменение сохранено и будет синхронизировано позже.'
+    if (moveToPlanning) { state.detail = null; await router.push(`/planning/projects/${ids.projectId}/milestones/${ids.milestoneId}/features/${ids.featureId}`) }
+    else await refresh()
+  }
 }
 function advanceLabel(task: Task) { const s = statusName(task.workStatus); return s === 'Done' ? 'Завершить и в архив' : s === 'InProgress' ? 'Отметить «Готово»' : 'Отметить «В работе»' }
 function menuItemsFor(kind: 'task' | 'section' | 'project', id: string): MenuItem[] {
@@ -449,7 +479,7 @@ function finishDescEdit(save = true) {
 function detailMove() {
   const task = state.detail; if (!task) return
   if (isArchived(task)) void mutate(task, 'restore').then(() => flash('Возвращено в Backlog'))
-  else void moveTaskVia(task, isToday(task) ? 'backlog' : 'today')
+  else void moveTaskVia(task, isToday(task) || String(task.location).toLowerCase() === 'planned' ? 'backlog' : 'today')
 }
 
 // ---------- drag & reorder (pointer-based, order mode) ----------
@@ -631,10 +661,8 @@ async function refresh() {
     tasks = tasks.filter(task => !changedTasks.has(task.id)).concat(cachedTasks.filter(task => changedTasks.has(task.id) && String(task.location).toLowerCase() === location.value.toLowerCase()))
     sections = sections.filter(section => !changedSections.has(section.id)).concat(cachedSections.filter(section => changedSections.has(section.id) && String(section.location).toLowerCase() === location.value.toLowerCase()))
     state.tasks = tasks; state.sections = sections
-    if (!state.archive) {
-      try { state.projects = await fetch('/api/v2/planning/projects?includeArchived=false').then(response => response.ok ? response.json() as Promise<ProjectLabel[]> : []); await cacheRows('planning.project', state.projects.map(x => ({ ...x, version: 0 }))) }
-      catch { const rows = await (await getOfflineStore()).listEntities('planning.project.view'); state.projects = rows.filter(x => !x.deleted).map(x => x.payload as ProjectLabel) }
-    }
+    try { state.projects = await fetch('/api/v2/planning/projects?includeArchived=true').then(response => response.ok ? response.json() as Promise<ProjectLabel[]> : []); await cacheRows('planning.project', state.projects.map(x => ({ ...x, version: 0 }))) }
+    catch { const rows = await (await getOfflineStore()).listEntities('planning.project.view'); state.projects = rows.filter(x => !x.deleted).map(x => x.payload as ProjectLabel) }
     state.detail = detail
     if (state.detail) {
       state.bucket = state.detail.location === 'today' || state.detail.location === 'Today' ? 'Сегодня' : 'Backlog'
@@ -748,7 +776,11 @@ onBeforeUnmount(() => {
       <div class="task-detail-top">
         <button type="button" class="doc-action doc-back task-detail-back" @click="closeDetail">← Назад</button>
       </div>
-      <div class="task-detail-meta"><span class="task-detail-section">{{ detailOrigin }}</span></div>
+      <div class="task-detail-meta">
+        <button v-if="detailPlanningPath" type="button" class="task-detail-section task-detail-path" @click="router.push(`/planning/projects/${state.detail.projectId}/milestones/${state.detail.milestoneId}/features/${state.detail.featureId}`)">{{ detailPlanningPath }}</button>
+        <span v-else class="task-detail-section">{{ detailOrigin }}</span>
+        <button type="button" class="task-link-edit" :aria-label="detailPlanningPath ? 'Изменить фичу' : 'Назначить фичу'" @click="openLinkSheet">{{ detailPlanningPath ? '✎' : 'Назначить фичу' }}</button>
+      </div>
       <div class="task-detail-title-wrap">
         <button v-if="state.detailEditing !== 'title'" type="button" class="task-title-open" @click="startTitleEdit">{{ state.detail.title }}</button>
         <input v-else ref="titleInputEl" v-model="state.title" class="task-title-detail-input" type="text" maxlength="160" @keydown.enter.prevent="finishTitleEdit(true)" @keydown.esc.prevent="finishTitleEdit(false)" @blur="finishTitleEdit(true)" @click.stop />
@@ -854,6 +886,18 @@ onBeforeUnmount(() => {
         <button type="button" class="task-archive-link" @click="openArchive">Архив</button>
       </div>
     </div>
+
+    <div class="overlay" :class="{ open: state.linkSheetOpen }" @click="state.linkSheetOpen = false" />
+    <section class="sheet task-link-sheet" :class="{ open: state.linkSheetOpen }" role="dialog" aria-modal="true" aria-label="Связь с планированием">
+      <div class="sheet-head"><div class="sheet-title">Связь с планированием</div><button type="button" class="sheet-close" aria-label="Закрыть" @click="state.linkSheetOpen = false">×</button></div>
+      <label class="task-link-label">Проект<select :value="state.linkProjectId" @change="chooseLinkProject(($event.target as HTMLSelectElement).value)"><option value="">Выбрать проект</option><option v-for="project in state.projects" :key="project.id" :value="project.id">{{ project.title }}</option></select></label>
+      <label class="task-link-label">Эпик<select v-model="state.linkMilestoneId" :disabled="!selectedProject" @change="chooseLinkMilestone(state.linkMilestoneId)"><option value="">Выбрать эпик</option><option v-for="milestone in selectedProject?.milestones || []" :key="milestone.id" :value="milestone.id">{{ milestone.title }}</option></select></label>
+      <label class="task-link-label">Фича<select v-model="state.linkFeatureId" :disabled="!selectedMilestone"><option value="">Выбрать фичу</option><option v-for="feature in selectedMilestone?.features || []" :key="feature.id" :value="feature.id">{{ feature.title }}</option></select></label>
+      <div class="task-link-footer" :class="{ single: String(state.detail?.location).toLowerCase() !== 'backlog' }">
+        <button v-if="String(state.detail?.location).toLowerCase() === 'backlog'" type="button" class="task-link-keep" :disabled="!selectedFeature" @click="savePlanningLink(false)">Оставить в Backlog</button>
+        <button type="button" class="task-link-submit" :disabled="!selectedFeature || (String(state.detail?.location).toLowerCase() === 'backlog' && !canMoveLinkToPlan)" @click="savePlanningLink(String(state.detail?.location).toLowerCase() === 'backlog')">{{ String(state.detail?.location).toLowerCase() === 'backlog' ? 'В планирование' : 'Сохранить связь' }}</button>
+      </div>
+    </section>
 
     <div class="overlay" :class="{ open: state.creating }" @click="closeCreateSheet" />
     <section class="sheet task-create-sheet" :class="{ open: state.creating }" aria-label="Создание задачи">

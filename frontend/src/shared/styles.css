@@ -356,6 +356,8 @@ button { border: 0; background: transparent; cursor: pointer; }
 .phone-shell .tasks-section .task-detail-back{min-height:38px;padding:0 12px;border:1px solid #2b3b49;border-radius:11px;background:#18242f;color:#d6e1ec;font-size:13px;font-weight:650}
 .phone-shell .tasks-section .task-detail-meta{display:flex;align-items:center;gap:8px;margin-top:12px}
 .phone-shell .tasks-section .task-detail-section{display:block;color:#9db0c4;font-size:13px;font-weight:650}
+.phone-shell .tasks-section .task-detail-path{max-width:calc(100% - 92px);padding:0;border:0;background:transparent;text-align:left;white-space:normal;line-height:1.35;cursor:pointer}
+.phone-shell .tasks-section .task-link-edit{flex:none;padding:4px 7px;border:0;border-radius:7px;background:transparent;color:#8fa9c3;font-size:13px;font-weight:650}
 .phone-shell .tasks-section .task-detail-title-wrap{margin-top:16px}
 .phone-shell .tasks-section .task-title-open{width:100%;padding:0;border:0;background:transparent;color:#fff;text-align:left;font-size:26px;line-height:1.14;font-weight:820;letter-spacing:-.02em}
 .phone-shell .tasks-section .task-title-detail-input{width:100%;height:56px;padding:0 14px;border:1px solid #3d5368;border-radius:14px;outline:0;background:#101920;color:#fff;font-size:26px;font-weight:800}
@@ -370,6 +372,16 @@ button { border: 0; background: transparent; cursor: pointer; }
 .phone-shell .tasks-section .task-delete-icon{width:40px;height:40px;display:grid;place-items:center;flex:none;margin-left:auto;border:1px solid #43303a;border-radius:10px;background:#241b20;color:#cb9ba8}
 .phone-shell .tasks-section .task-delete-icon svg{width:18px;height:18px;fill:none;stroke:currentColor;stroke-linecap:round;stroke-linejoin:round;stroke-width:1.8}
 .phone-shell .task-create-sheet{bottom:76px}
+.phone-shell .task-link-sheet{bottom:76px}
+.phone-shell .task-link-label{display:grid;gap:6px;margin-top:10px;color:#9db0c4;font-size:12px;font-weight:650}
+.phone-shell .task-link-label select{width:100%;height:44px;padding:0 11px;border:1px solid #2b3c4a;border-radius:11px;background:#18242f;color:#e7eef7;font-size:14px;outline:none}
+.phone-shell .task-link-label select:disabled{opacity:.45}
+.phone-shell .task-link-footer{display:flex;gap:8px;margin-top:14px}
+.phone-shell .task-link-footer button{flex:1;min-width:0;min-height:44px;padding:0 8px;border:1px solid #344757;border-radius:11px;font-size:12px;font-weight:720}
+.phone-shell .task-link-keep{background:#18242f;color:#d1deeb}
+.phone-shell .task-link-submit{border-color:#416a9c;background:#355987;color:#fff}
+.phone-shell .task-link-footer button:disabled{opacity:.4}
+.phone-shell .task-link-footer.single .task-link-submit{flex:1}
 .phone-shell .task-create-sheet .task-create-description{width:100%;min-height:88px;resize:none;margin-top:8px;padding:11px 12px;border:0;border-radius:11px;outline:none;background:#18242f;color:#fff;font-size:14px;line-height:1.45}
 .phone-shell .task-create-sheet .task-create-description::placeholder{color:#75879a}
 .phone-shell .tasks-section .task-toast{position:absolute;z-index:90;left:50%;bottom:90px;max-width:330px;padding:9px 12px;border:1px solid #3b4d60;border-radius:11px;background:#23313e;box-shadow:0 10px 28px rgba(0,0,0,.25);color:#dce6f0;font-size:12px;opacity:0;pointer-events:none;text-align:center;transform:translate(-50%,12px);transition:opacity .16s ease,transform .16s ease}

@@ -342,6 +342,64 @@ public sealed class TaskCreationPreparationTests
         Assert.Null(backlog.Current.SectionId);
     }
 
+    [Fact]
+    public async Task Existing_backlog_task_can_be_linked_and_moved_to_planning_in_one_synced_update()
+    {
+        var repository = new MemoryTasksRepository();
+        var access = new TasksAgentAccess(new TasksService(repository, new ValidPlanningLinks(), new ImmediateTransactionRunner()));
+        var id = Guid.NewGuid();
+        var created = await access.ApplyAsync(new TaskMutation(TaskMutationKind.Create, TaskEntityKind.Task, id, null, "Задача", "Описание", Placement: "backlog"));
+
+        var moved = await access.ApplyAsync(new TaskMutation(TaskMutationKind.Update, TaskEntityKind.Task, id, created.Current!.Version,
+            Planning: new PlanningLink(ProjectId, MilestoneId, FeatureId), Placement: "planned"));
+
+        Assert.True(moved.Applied, moved.ConflictReason);
+        Assert.Equal(id, moved.Current!.Id);
+        Assert.Equal("Задача", moved.Current.Title);
+        Assert.Equal("Описание", moved.Current.Description);
+        Assert.Equal("planned", moved.Current.Placement);
+        Assert.Equal(new PlanningLink(ProjectId, MilestoneId, FeatureId), moved.Current.Planning);
+        Assert.Null(moved.Current.SectionId);
+    }
+
+    [Fact]
+    public async Task Invalid_planning_link_does_not_partially_update_task_or_advance_its_version()
+    {
+        var repository = new MemoryTasksRepository();
+        var id = Guid.NewGuid();
+        var original = new TaskItem("Исходное название", "Исходное описание", id: id);
+        await repository.SaveAsync(original, CancellationToken.None);
+        var access = new TasksAgentAccess(new TasksService(repository, new InvalidPlanningLinks(), new ImmediateTransactionRunner()));
+
+        var result = await access.ApplyAsync(new TaskMutation(TaskMutationKind.Update, TaskEntityKind.Task, id, original.Version,
+            Title: "Изменённое название", Description: "Изменённое описание", Planning: new PlanningLink(ProjectId, MilestoneId, FeatureId)));
+
+        Assert.False(result.Applied);
+        Assert.Equal(original.Version, result.Current!.Version);
+        Assert.Equal("Исходное название", result.Current.Title);
+        Assert.Equal("Исходное описание", result.Current.Description);
+        Assert.Null(result.Current.Planning);
+    }
+
+    [Fact]
+    public async Task Planned_task_can_be_reassigned_to_another_feature_without_leaving_planning()
+    {
+        var repository = new MemoryTasksRepository();
+        var access = new TasksAgentAccess(new TasksService(repository, new ValidPlanningLinks(), new ImmediateTransactionRunner()));
+        var id = Guid.NewGuid();
+        var created = await access.ApplyAsync(new TaskMutation(TaskMutationKind.Create, TaskEntityKind.Task, id, null,
+            "Запланированная задача", "Описание", new PlanningLink(ProjectId, MilestoneId, FeatureId), "planned"));
+        var replacement = new PlanningLink(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid());
+
+        var updated = await access.ApplyAsync(new TaskMutation(TaskMutationKind.Update, TaskEntityKind.Task, id, created.Current!.Version,
+            Planning: replacement, Placement: "planned"));
+
+        Assert.True(updated.Applied, updated.ConflictReason);
+        Assert.Equal("planned", updated.Current!.Placement);
+        Assert.Equal(replacement, updated.Current.Planning);
+        Assert.Equal("Запланированная задача", updated.Current.Title);
+    }
+
     private static AgentTurnService CreateService(Queue<ModelCompletion> calls, IReadOnlyList<TaskFeatureTarget>? features = null) => new(
         new QueueRouter(calls), new EmptySearch(), new EmptyKnowledge(), new CatalogPlanning(features), new CatalogTasks());
 
@@ -390,6 +448,11 @@ public sealed class TaskCreationPreparationTests
     {
         public Task<PlanningLinkValidationResult> ValidateAsync(PlanningLink link, CancellationToken cancellationToken = default) =>
             Task.FromResult(new PlanningLinkValidationResult(true, []));
+    }
+    private sealed class InvalidPlanningLinks : IPlanningLinkValidator
+    {
+        public Task<PlanningLinkValidationResult> ValidateAsync(PlanningLink link, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new PlanningLinkValidationResult(false, []));
     }
     private sealed class ImmediateTransactionRunner : ITransactionRunner
     {

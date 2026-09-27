@@ -43,6 +43,15 @@ public sealed class TaskItem
     public void MoveToToday(Guid? sectionId) { if (Location != TaskLocation.Backlog) throw new InvalidOperationException("Move planned tasks to Backlog before selecting them for Today."); Location = TaskLocation.Today; SectionId = ProjectId is null ? sectionId : null; WorkStatus = TaskWorkStatus.New; Touch(); }
     public void MoveToBacklog(Guid? sectionId) { if (Location is not (TaskLocation.Today or TaskLocation.Planned)) throw new InvalidOperationException("Only Today or planned tasks can move to Backlog."); Location = TaskLocation.Backlog; SectionId = ProjectId is null ? sectionId : null; WorkStatus = TaskWorkStatus.New; Touch(); }
     public void ReturnToPlan() { if (Location != TaskLocation.Backlog || FeatureId is null) throw new InvalidOperationException("Only linked backlog tasks can return to planning."); Location = TaskLocation.Planned; SectionId = null; WorkStatus = TaskWorkStatus.New; Touch(); }
+    public void UpdateWithPlanningLink(string? title, string? description, Guid projectId, Guid milestoneId, Guid featureId, bool moveToPlanning)
+    {
+        if (moveToPlanning && Location is not (TaskLocation.Backlog or TaskLocation.Planned)) throw new InvalidOperationException("Only Backlog or Planned tasks can be linked while moving to planning.");
+        if (title is not null) Title = Required(title);
+        if (description is not null) Description = description.Trim();
+        ProjectId = projectId; MilestoneId = milestoneId; FeatureId = featureId; SectionId = null;
+        if (moveToPlanning && Location == TaskLocation.Backlog) { Location = TaskLocation.Planned; WorkStatus = TaskWorkStatus.New; }
+        Touch();
+    }
     public void SetWorkStatus(TaskWorkStatus status) { if (Location != TaskLocation.Today) throw new InvalidOperationException("Work status applies only to Today tasks."); WorkStatus = status; Touch(); }
     public void Archive() { Location = TaskLocation.Archived; Touch(); }
     public void Restore(Guid? sectionId) { if (Location != TaskLocation.Archived) throw new InvalidOperationException("Only archived tasks can be restored."); Location = TaskLocation.Backlog; SectionId = ProjectId is null ? sectionId : null; WorkStatus = TaskWorkStatus.New; Touch(); }

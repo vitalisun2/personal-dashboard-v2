@@ -57,6 +57,16 @@ public sealed class TasksService(ITasksRepository repository, PersonalDashboard.
         item.SetSection(sectionId); await repository.SaveAsync(item, ct); return Map(item);
     }
 
+    public async Task<TaskView> UpdateWithPlanningLinkAsync(Guid id, long expectedVersion, string? title, string? description, PlanningLink link, bool moveToPlanning, CancellationToken ct)
+    {
+        var item = await Required(id, ct); Check(item.Version, expectedVersion);
+        var validation = await planning.ValidateAsync(link, ct);
+        if (!validation.IsValid || link.ProjectId is not { } projectId || link.MilestoneId is not { } milestoneId || link.FeatureId is not { } featureId)
+            throw new InvalidPlanningLinkException();
+        item.UpdateWithPlanningLink(title, description, projectId, milestoneId, featureId, moveToPlanning);
+        await repository.SaveAsync(item, ct); return Map(item);
+    }
+
     public async Task<IReadOnlyList<TaskView>> ReorderTasksAsync(TaskLocation location, Guid? sectionId, IReadOnlyList<TaskOrderItem> order, CancellationToken ct, Guid? projectId = null, Guid? milestoneId = null, Guid? featureId = null)
     {
         return await transaction.ExecuteAsync(async token =>

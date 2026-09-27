@@ -27,6 +27,7 @@ public static class TasksApiModule
         group.MapPost("", async (TaskCreate input, TasksService service, CancellationToken ct) => Results.Created($"/api/v2/tasks", await service.CreateAsync(input.Title, input.Description, input.ProjectId, input.MilestoneId, input.FeatureId, input.SectionId, ct)));
         group.MapPut("/{id:guid}", (Guid id, TaskEdit input, TasksService service, CancellationToken ct) => service.EditAsync(id, input.ExpectedVersion, input.Title, input.Description, ct));
         group.MapPut("/{id:guid}/section", (Guid id, TaskSectionEdit input, TasksService service, CancellationToken ct) => service.SetSectionAsync(id, input.ExpectedVersion, input.SectionId, ct));
+        group.MapPut("/{id:guid}/planning-link", (Guid id, TaskPlanningLinkEdit input, TasksService service, CancellationToken ct) => service.UpdateWithPlanningLinkAsync(id, input.ExpectedVersion, null, null, new(input.ProjectId, input.MilestoneId, input.FeatureId), input.MoveToPlanning, ct));
         group.MapPost("/{id:guid}/today", (Guid id, VersionInput input, TasksService service, CancellationToken ct) => service.MoveToTodayAsync(id, input.ExpectedVersion, ct));
         group.MapPost("/{id:guid}/backlog", (Guid id, VersionInput input, TasksService service, CancellationToken ct) => service.MoveToBacklogAsync(id, input.ExpectedVersion, ct));
         group.MapPost("/{id:guid}/planning", (Guid id, VersionInput input, TasksService service, CancellationToken ct) => service.ReturnToPlanAsync(id, input.ExpectedVersion, ct));
@@ -46,6 +47,7 @@ public static class TasksApiModule
     public sealed record TaskCreate(string Title, string? Description, Guid? ProjectId, Guid? MilestoneId, Guid? FeatureId, Guid? SectionId);
     public sealed record TaskEdit(long ExpectedVersion, string Title, string? Description);
     public sealed record TaskSectionEdit(long ExpectedVersion, Guid SectionId);
+    public sealed record TaskPlanningLinkEdit(long ExpectedVersion, Guid ProjectId, Guid MilestoneId, Guid FeatureId, bool MoveToPlanning);
     public sealed record VersionInput(long ExpectedVersion);
     public sealed record StatusInput(long ExpectedVersion, TaskWorkStatus Status);
     public sealed record TaskOrderInput(TaskLocation Location, Guid? SectionId, IReadOnlyList<TaskOrderItem> Items, Guid? ProjectId = null, Guid? MilestoneId = null, Guid? FeatureId = null);

@@ -70,7 +70,10 @@ public sealed class TasksAgentAccess(TasksService service) : ITasksAgentAccess
         }
         else
         {
-            item = await service.UpdateMutationAsync(mutation.Id, Version(mutation), mutation.Title, mutation.Description, sectionId: null, ct);
+            var moveToPlanning = string.Equals(mutation.Placement, "planned", StringComparison.OrdinalIgnoreCase);
+            item = mutation.Planning is { } link
+                ? await service.UpdateWithPlanningLinkAsync(mutation.Id, Version(mutation), mutation.Title, mutation.Description, link, moveToPlanning, ct)
+                : await service.UpdateMutationAsync(mutation.Id, Version(mutation), mutation.Title, mutation.Description, sectionId: null, ct);
         }
 
         var placement = mutation.Placement?.ToLowerInvariant();
