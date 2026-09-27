@@ -4,16 +4,18 @@ import { useRoute, useRouter } from 'vue-router'
 import { requestSync, subscribeSyncStatus, type SyncStatus } from '../../offline/runtime'
 import {
   cacheServerKnowledge, getCachedKnowledge, getKnowledgeConflicts, loadKnowledgeTree,
-  pendingKnowledgeCount, queueKnowledgeDelete, queueKnowledgeUpsert,
-  type KnowledgeNode,
+  pendingKnowledgeCount, queueKnowledgeDelete, queueKnowledgeUpsert, searchKnowledge,
+  type KnowledgeNode, type KnowledgeSearchResult,
 } from './knowledgeApi'
 import './knowledge.css'
 
 const route = useRoute()
 const router = useRouter()
 const nodes = ref<KnowledgeNode[]>([])
+const results = ref<KnowledgeSearchResult[]>([])
 const expanded = ref(new Set<string>())
 const query = ref(String(route.query.q || ''))
+const searchLoading = ref(false)
 const orderMode = ref(false)
 const busy = ref(false)
 const error = ref('')
@@ -132,7 +134,42 @@ function handleSyncStatus(status: SyncStatus) {
     void getCachedKnowledge().then(cached => { nodes.value = cached; return refreshSyncState() }).catch(setError)
   }
 }
-watch(() => route.query.q, value => { query.value = String(value || '') })
+let searchRevision = 0
+let searchTimer: ReturnType<typeof setTimeout> | undefined
+async function runSearch() {
+  const revision = ++searchRevision
+  const term = query.value.trim()
+  results.value = []
+  error.value = ''
+  if (!term) {
+    searchLoading.value = false
+    return
+  }
+
+  searchLoading.value = true
+  orderMode.value = false
+  try {
+    const found = await searchKnowledge(term)
+    if (revision === searchRevision) results.value = found
+  } catch (err) {
+    if (revision === searchRevision) setError(err)
+  } finally {
+    if (revision === searchRevision) searchLoading.value = false
+  }
+}
+function scheduleSearch() {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => void runSearch(), 250)
+}
+watch(() => route.query.q, value => {
+  const next = String(value || '')
+  if (query.value !== next) query.value = next
+})
+watch(query, value => {
+  const q = value.trim()
+  if (q !== String(route.query.q || '')) void router.replace({ query: { ...route.query, ...(q ? { q } : { q: undefined }) } })
+  scheduleSearch()
+})
 watch(documentId, id => { if (id && !nodes.value.some(node => node.id === id)) void load() })
 watch(documentId, () => { titleEditing.value = false; markdownEditing.value = false })
 watch(createOpen, open => {
@@ -144,12 +181,15 @@ const onOnline = () => { isOnline.value = true }
 const onOffline = () => { isOnline.value = false }
 onMounted(() => {
   void load()
+  if (isSearching.value) scheduleSearch()
   unsubscribeSync = subscribeSyncStatus(handleSyncStatus)
   void refreshSyncState()
   window.addEventListener('online', onOnline)
   window.addEventListener('offline', onOffline)
 })
 onUnmounted(() => {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchRevision++
   unsubscribeSync()
   window.removeEventListener('online', onOnline)
   window.removeEventListener('offline', onOffline)
@@ -339,7 +379,15 @@ function clearSearch() {
           />
           <p v-if="!nodes.length" class="empty">База знаний пока пуста. Создайте первый документ или раздел.</p>
         </div>
-        <p v-else class="empty" role="status">Функционал не реализован</p>
+        <div v-else class="results" aria-live="polite">
+          <p v-if="searchLoading" class="empty" role="status">Ищем…</p>
+          <button v-for="result in results" v-else :key="result.id" type="button" class="result" @click="openDocument(result.id)">
+            <div class="result-title">{{ result.title }}</div>
+            <div class="result-path">{{ result.path }}</div>
+            <div class="result-snippet">«{{ result.snippet }}»</div>
+          </button>
+          <p v-if="!searchLoading && !results.length && !error" class="empty">Ничего не найдено</p>
+        </div>
       </div>
     </template>
 

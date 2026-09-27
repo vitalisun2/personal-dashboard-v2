@@ -13,13 +13,15 @@ export type KnowledgeNode = {
   archived: boolean
 }
 
-export type SearchHit = {
-  source: { kind: string; id: string; version: number; url: string; title: string; path: string; snippet: string; updatedAtUtc: string }
-  score: number
-  matchKind: 'lexical' | 'semantic'
+export type KnowledgeSearchResult = {
+  id: string
+  title: string
+  parentId: string | null
+  path: string
+  snippet: string
+  version: number
+  updatedAt: string
 }
-
-export type SearchResponse = { hits: SearchHit[]; nextCursor: string | null; isComplete: boolean; coverageNote: string | null }
 
 export const ENTITY_TYPE = 'knowledge.node'
 
@@ -72,11 +74,8 @@ export async function loadKnowledgeTree(): Promise<KnowledgeNode[]> {
   return request<KnowledgeNode[]>('/api/v2/knowledge/tree')
 }
 
-export function searchKnowledge(query: string): Promise<SearchResponse> {
-  return request<SearchResponse>('/api/v2/search', {
-    method: 'POST',
-    body: JSON.stringify({ query, mode: 'relevant', kinds: ['knowledge.document'], pageSize: 20 }),
-  })
+export function searchKnowledge(query: string): Promise<KnowledgeSearchResult[]> {
+  return request<KnowledgeSearchResult[]>(`/api/v2/knowledge/search?q=${encodeURIComponent(query)}`)
 }
 
 async function nextOperationTime(entityId: string): Promise<string> {
