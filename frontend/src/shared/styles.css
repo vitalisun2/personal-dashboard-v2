@@ -109,9 +109,8 @@ button { border: 0; background: transparent; cursor: pointer; }
 .phone-shell .semantic .kind{color:#98b7ed}
 .phone-shell .result{width:100%;text-align:left;background:linear-gradient(90deg,#18242f,#202d39);border-radius:14px;padding:13px 14px;margin-bottom:8px;color:inherit}
 .phone-shell .result-title{font-size:15px;font-weight:680}
-.phone-shell .semantic .result{position:relative}
-.phone-shell .semantic .result-title{padding-right:46px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.phone-shell .semantic-score{position:absolute;top:14px;right:14px;color:#8faad0;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums}
+.phone-shell .semantic .result-title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.phone-shell .semantic-score{display:block;margin-top:3px;color:#8f9dad;font-size:11px;font-weight:400;font-variant-numeric:tabular-nums}
 .phone-shell .result-path{font-size:11px;color:#79a4d7;margin-top:4px}
 .phone-shell .result-snippet{font-size:12.5px;line-height:1.48;color:#aebccc;margin-top:8px}
 .phone-shell mark.exact{background:rgba(74,122,196,.30);color:#b9d6ff;font-weight:850;border-radius:4px;padding:0 3px}

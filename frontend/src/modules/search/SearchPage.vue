@@ -27,6 +27,10 @@ const similarResults = computed(() => {
 const loading = computed(() => exactLoading.value || semanticLoading.value)
 const hasResults = computed(() => exactResults.value.length > 0 || similarResults.value.length > 0)
 
+function semanticProximity(hit: SearchHit) {
+  return Math.max(0, Math.min(1, hit.semanticSimilarity ?? 0)).toFixed(2).replace('.', ',')
+}
+
 async function runSearch() {
   const revision = ++searchRevision
   const term = query.value.trim()
@@ -96,6 +100,7 @@ onBeforeUnmount(() => {
         <ol class="search-results">
           <li v-for="result in similarResults" :key="result.source.id">
             <RouterLink class="result-title" :to="`/knowledge/${result.source.id}`">{{ result.source.title }}</RouterLink>
+            <p class="semantic-score" :title="`Сходство по смыслу с запросом, не вероятность правильного ответа`" :aria-label="`Близость: ${semanticProximity(result)}. Сходство по смыслу с запросом, не вероятность правильного ответа`">Близость: {{ semanticProximity(result) }}</p>
             <p class="result-path">{{ result.source.path }}</p>
             <blockquote class="result-snippet">«{{ result.source.snippet }}»</blockquote>
           </li>
@@ -124,6 +129,7 @@ onBeforeUnmount(() => {
 .search-results li { padding: 16px; border: 1px solid #293744; border-radius: 12px; background: #18242f; }
 .result-title { color: #e5edf5; font-weight: 650; text-decoration: none; }
 .result-title:hover { color: #b9d6ff; }
+.semantic-score { margin: 4px 0 0; color: #91a0af; font-size: 11px; font-weight: 400; }
 .result-path { margin: 6px 0; color: #91a0af; font-size: 12px; }
 .result-snippet { margin: 10px 0 0; padding-left: 12px; border-left: 2px solid #42617f; color: #c5d0dc; line-height: 1.5; }
 .result-snippet :deep(mark.exact), .result-title :deep(mark.exact) { padding: 0 2px; border-radius: 3px; background: rgba(74, 122, 196, .36); color: #d9e9ff; font-weight: 750; }

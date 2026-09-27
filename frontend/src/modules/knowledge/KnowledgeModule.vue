@@ -110,8 +110,8 @@ function childNodes(parentId: string | null): KnowledgeNode[] { return nodes.val
 function changeWord(count: number) { return count === 1 ? 'изменение' : count < 5 ? 'изменения' : 'изменений' }
 function pendingLabel(count: number) { return `${count} ${changeWord(count)} ${count === 1 ? 'ожидает' : 'ожидают'} синхронизации` }
 function conflictWord(count: number) { return count === 1 ? 'конфликт' : count < 5 ? 'конфликта' : 'конфликтов' }
-function semanticPercent(hit: SearchHit) {
-  return Math.round(Math.max(0, Math.min(1, hit.semanticSimilarity ?? 0)) * 100)
+function semanticProximity(hit: SearchHit) {
+  return Math.max(0, Math.min(1, hit.semanticSimilarity ?? 0)).toFixed(2).replace('.', ',')
 }
 function setError(err: unknown) { error.value = err instanceof Error ? err.message : 'Не удалось выполнить действие' }
 function nodePath(node: KnowledgeNode, all = nodes.value): string {
@@ -466,7 +466,7 @@ function clearSearch() {
             <div class="group-head"><span class="group-name">Похожие по смыслу</span></div>
             <button v-for="result in similarResults" :key="result.source.id" type="button" class="result" @click="openDocument(result.source.id)">
               <div class="result-title">{{ result.source.title }}</div>
-              <span class="semantic-score" :aria-label="`Смысловая близость ${semanticPercent(result)} процентов`">{{ semanticPercent(result) }}%</span>
+              <span class="semantic-score" :title="`Сходство по смыслу с запросом, не вероятность правильного ответа`" :aria-label="`Близость: ${semanticProximity(result)}. Сходство по смыслу с запросом, не вероятность правильного ответа`">Близость: {{ semanticProximity(result) }}</span>
               <div class="result-path">{{ result.source.path }}</div>
               <div class="result-snippet">«<TextRangeHighlight :text="result.source.snippet" :start="result.source.highlight?.start" :length="result.source.highlight?.length" />»</div>
             </button>
