@@ -138,7 +138,7 @@ async function savePlanningLink(moveToPlanning: boolean) {
     else await refresh()
   }
 }
-function advanceLabel(task: Task) { const s = statusName(task.workStatus); return s === 'Done' ? 'Завершить и в архив' : s === 'InProgress' ? 'Отметить «Готово»' : 'Отметить «В работе»' }
+function advanceLabel(task: Task) { const s = statusName(task.workStatus); return s === 'Done' ? 'Отметить «Новая»' : s === 'InProgress' ? 'Отметить «Готово»' : 'Отметить «В работе»' }
 function menuItemsFor(kind: 'task' | 'section' | 'project', id: string): MenuItem[] {
   if (kind === 'task') {
     const task = taskById(id); if (!task) return []
@@ -296,8 +296,9 @@ async function moveTaskVia(task: Task, target: 'today' | 'backlog') {
 }
 async function advanceTask(task: Task) {
   const s = statusName(task.workStatus)
-  if (s === 'Done') { await mutate(task, 'archive'); flash('Задача завершена и отправлена в архив') }
-  else { const next = s === 'New' ? 'inProgress' : 'done'; await mutate(task, 'status', 'PUT', { expectedVersion: task.version, status: next }); flash(next === 'inProgress' ? 'Статус: В работе' : 'Статус: Готово') }
+  const next = s === 'Done' ? 'new' : s === 'InProgress' ? 'done' : 'inProgress'
+  await mutate(task, 'status', 'PUT', { expectedVersion: task.version, status: next })
+  flash(`Статус: ${workLabel(next)}`)
 }
 function archiveTask(task: Task) {
   askConfirm({ title: 'Убрать задачу в архив?', body: `«${task.title}» можно будет найти в архиве.`, confirmLabel: 'В архив', onConfirm: () => { void mutate(task, 'archive').then(() => flash('Задача перемещена в архив')) } })
@@ -709,7 +710,7 @@ async function mutate(task: Task, suffix: string, method = 'POST', body: object 
   try { await request(`/${task.id}/${suffix}`, { method, body: JSON.stringify(body) }); await refresh() } catch (error) {
     if (error instanceof TypeError) {
       const operation = suffix === 'archive' ? 'archive' : suffix === 'restore' ? 'restore' : suffix === 'section' ? 'update' : suffix === 'status' ? 'setWorkStatus' : 'move'
-      const placement = suffix === 'today' ? 'today' : suffix === 'backlog' || suffix === 'restore' ? 'backlog' : suffix === 'planning' ? 'planned' : 'archived'
+      const placement = suffix === 'status' || suffix === 'section' ? task.location : suffix === 'today' ? 'today' : suffix === 'backlog' || suffix === 'restore' ? 'backlog' : suffix === 'planning' ? 'planned' : 'archived'
       const payload = suffix === 'section'
         ? { operation: 'update', kind: 'task', id: task.id, expectedVersion: task.version, sectionId: (body as { sectionId: string }).sectionId }
         : { operation, kind: 'task', id: task.id, expectedVersion: task.version, placement, workStatus: suffix === 'status' ? (body as { status: string }).status : statusName(task.workStatus) === 'InProgress' ? 'inProgress' : statusName(task.workStatus).toLowerCase(), sectionId: suffix === 'planning' ? null : task.sectionId, ...(suffix === 'planning' && task.projectId && task.milestoneId && task.featureId ? { planning: { projectId: task.projectId, milestoneId: task.milestoneId, featureId: task.featureId } } : {}) }
@@ -843,9 +844,7 @@ onBeforeUnmount(() => {
       <div class="task-detail-bottom-actions">
         <button type="button" class="task-detail-pill action-move" @click="detailMove">{{ detailMoveLabel }}</button>
         <button v-if="isToday(state.detail)" type="button" class="task-detail-pill action-status" :class="workState(state.detail.workStatus)" @click="advanceTask(state.detail)">{{ workLabel(state.detail.workStatus) }}</button>
-        <button v-if="!isArchived(state.detail)" type="button" class="task-delete-icon" aria-label="Убрать задачу в архив" @click="archiveTask(state.detail)">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 13h10l1-13"/><path d="M10 11v5M14 11v5"/></svg>
-        </button>
+        <button v-if="!isArchived(state.detail)" type="button" class="task-detail-pill action-move" @click="archiveTask(state.detail)">В архив</button>
         <button v-else type="button" class="task-delete-icon" aria-label="Удалить задачу навсегда" @click="deleteArchivedTask(state.detail)">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 13h10l1-13"/><path d="M10 11v5M14 11v5"/></svg>
         </button>
