@@ -18,7 +18,8 @@ public sealed record AgentTurnRequest(
     ChatModelRoute RequestedRoute,
     IReadOnlyList<ModelMessage> RecentMessages,
     IReadOnlyList<SearchSourceReference>? RecentSources = null,
-    ChatProposal? PendingProposal = null);
+    ChatProposal? PendingProposal = null,
+    Func<string, string, CancellationToken, ValueTask>? Progress = null);
 
 public sealed record AgentTurnResult(
     string Answer,
@@ -90,6 +91,8 @@ public sealed class AgentTurnService(
         RoutedCompletion? lastRoute = null;
         for (var round = 0; round <= MaxToolRounds; round++)
         {
+            await ReportProgressAsync(request, round == 0 ? "processing" : "reasoning",
+                round == 0 ? "Обрабатываю сообщение…" : "Проверяю результаты…", cancellationToken);
             lastRoute = await models.CompleteAsync(request.RequestedModel,
                 new ModelCompletionRequest(messages, Tools), cancellationToken);
             var completion = lastRoute.Completion;
@@ -112,6 +115,7 @@ public sealed class AgentTurnService(
                 {
                     try
                     {
+                        await ReportProgressAsync(request, "preparing", "Готовлю предложение…", cancellationToken);
                         var arguments = call.Name switch
                         {
                             "prepare_knowledge_document" => await KnowledgeDocumentPreparation.ToProposalArgumentsAsync(call.ArgumentsJson, knowledgeAgent, sectionCatalogLoaded, request, cancellationToken),
@@ -143,6 +147,7 @@ public sealed class AgentTurnService(
                 string output;
                 if (call.Name == "list_knowledge_sections")
                 {
+                    await ReportProgressAsync(request, "catalog", "Проверяю доступные разделы…", cancellationToken);
                     var sections = await knowledgeAgent.ListSectionsAsync(cancellationToken);
                     sectionCatalogLoaded = true;
                     output = JsonSerializer.Serialize(new
@@ -154,6 +159,7 @@ public sealed class AgentTurnService(
                 }
                 else if (call.Name == "list_task_destinations")
                 {
+                    await ReportProgressAsync(request, "catalog", "Проверяю доступные разделы и фичи…", cancellationToken);
                     var backlog = await tasks.ListBacklogSectionsAsync(cancellationToken);
                     var features = await planning.ListTaskFeaturesAsync(cancellationToken);
                     taskCatalogLoaded = true;
@@ -166,6 +172,7 @@ public sealed class AgentTurnService(
                 }
                 else if (call.Name == "search_app")
                 {
+                    await ReportProgressAsync(request, "search", "Ищу в ваших данных…", cancellationToken);
                     var found = await SearchAsync(call.ArgumentsJson, allSources, cancellationToken);
                     if (found.Show && found.HasHits)
                     {
@@ -184,14 +191,20 @@ public sealed class AgentTurnService(
                     else output = found.ToolResult;
                 }
                 else if (call.Name == "read_current")
+                {
+                    await ReportProgressAsync(request, "read", "Читаю источник для ответа…", cancellationToken);
                     output = await ReadCurrentAsync(call.ArgumentsJson, allowedSources.Concat(allSources).ToArray(),
                         allSources, resolvedScope, cancellationToken);
+                }
                 else output = "Unknown tool.";
                 messages.Add(new ModelMessage("tool", output, ToolCallId: call.Id, Name: call.Name));
             }
         }
         throw new InvalidOperationException("Agent tool loop exited unexpectedly.");
     }
+
+    private static ValueTask ReportProgressAsync(AgentTurnRequest request, string stage, string text, CancellationToken cancellationToken) =>
+        request.Progress is null ? ValueTask.CompletedTask : request.Progress(stage, text, cancellationToken);
 
     private sealed record SearchToolResult(bool Show, bool HasHits, string Display, string ToolResult,
         IReadOnlyList<SearchSourceReference> Sources);

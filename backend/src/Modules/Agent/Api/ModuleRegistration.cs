@@ -3,7 +3,10 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
+using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using PersonalDashboard.V2.Agent.Application;
 using PersonalDashboard.V2.Agent.Domain;
 using PersonalDashboard.V2.Contracts.Chat;
@@ -23,9 +26,9 @@ public static class AgentApiModule
         return endpoints;
     }
 
-    private static async Task<IResult> SendTurnAsync(Guid conversationId, SendTurnRequest request,
+    private static async Task<IResult> SendTurnAsync(HttpContext httpContext, Guid conversationId, SendTurnRequest request,
         IChatConversationStore chats, IAgentTurnService agent, ITransactionRunner transactions, ISearchIndexer search,
-        ILoggerFactory loggerFactory, CancellationToken cancellationToken)
+        ILoggerFactory loggerFactory, IOptions<JsonOptions> jsonOptions, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Message)) return Results.BadRequest(new { error = "Message is required." });
         const string requestedModel = "Gemma";
@@ -46,6 +49,15 @@ public static class AgentApiModule
         if (pendingDraft is not null)
             recent = recent.Append(ProposalDraftContext.ToMessage(pendingDraft)).ToArray();
         var turnId = Guid.NewGuid();
+        var stream = WantsNdjson(httpContext.Request);
+        var streamStarted = false;
+        if (stream)
+        {
+            httpContext.Response.ContentType = "application/x-ndjson; charset=utf-8";
+            httpContext.Response.Headers.CacheControl = "no-cache, no-transform";
+            httpContext.Response.Headers["X-Accel-Buffering"] = "no";
+            httpContext.Features.Get<IHttpResponseBodyFeature>()?.DisableBuffering();
+        }
         AgentTurnResult result;
         try
         {
@@ -53,12 +65,34 @@ public static class AgentApiModule
                 requestedModel, ChatModelRoute.Default, recent,
                 turns.SelectMany(turn => turn.Sources).Where(source => !source.IsChatHistory)
                     .Reverse().DistinctBy(source => (source.Kind, source.Id)).Take(30).Reverse().ToArray(),
-                PendingProposal: pendingDraft), cancellationToken);
+                PendingProposal: pendingDraft,
+                Progress: stream ? async (stage, text, ct) =>
+                {
+                    if (!httpContext.Response.HasStarted) await httpContext.Response.StartAsync(ct);
+                    streamStarted = true;
+                    await WriteNdjsonAsync(httpContext, new { type = "progress", turnId, stage, text }, jsonOptions.Value.SerializerOptions, ct);
+                } : null), cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (ChatModelUnavailableException)
         {
+            if (stream && (streamStarted || httpContext.Response.HasStarted))
+            {
+                await WriteNdjsonAsync(httpContext, new { type = "error", message = "Gemma временно недоступна. Попробуйте позже." }, jsonOptions.Value.SerializerOptions, httpContext.RequestAborted);
+                return Results.Empty;
+            }
             return Results.Json(new { error = "Gemma временно недоступна. Попробуйте позже." }, statusCode: StatusCodes.Status503ServiceUnavailable);
+        }
+        catch (Exception error) when (stream && (streamStarted || httpContext.Response.HasStarted) && error is not OperationCanceledException)
+        {
+            loggerFactory.CreateLogger("PersonalDashboard.V2.Agent.Stream").LogError(error, "Streaming chat turn {TurnId} failed after response start.", turnId);
+            await WriteNdjsonAsync(httpContext, new { type = "error", message = "Не удалось завершить ответ." }, jsonOptions.Value.SerializerOptions, httpContext.RequestAborted);
+            return Results.Empty;
+        }
+        catch (Exception error) when (stream && error is not OperationCanceledException)
+        {
+            loggerFactory.CreateLogger("PersonalDashboard.V2.Agent.Stream").LogError(error, "Chat turn {TurnId} failed before the progress stream started.", turnId);
+            return Results.Json(new { error = "Не удалось обработать сообщение." }, statusCode: StatusCodes.Status500InternalServerError);
         }
 
         var now = DateTimeOffset.UtcNow;
@@ -66,7 +100,17 @@ public static class AgentApiModule
             new ChatTurnScope(result.Scope.Mode, result.Scope.EntityType, result.Scope.EntityId, result.Scope.EntityVersion),
             result.RequestedModel, result.ActualModel, result.ModelRoute, result.Sources, now, result.FallbackReason);
         ChatProposal? proposal = result.Proposal is null ? null : ToContract(result.Proposal);
-        await ProposalDraftPersistence.PersistTurnAsync(chats, transactions, turn, proposal, cancellationToken);
+        try
+        {
+            await ProposalDraftPersistence.PersistTurnAsync(chats, transactions, turn, proposal, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
+        catch (Exception error) when (stream && (streamStarted || httpContext.Response.HasStarted))
+        {
+            loggerFactory.CreateLogger("PersonalDashboard.V2.Agent.Stream").LogError(error, "Could not persist completed chat turn {TurnId}.", turn.Id);
+            await WriteNdjsonAsync(httpContext, new { type = "error", message = "Не удалось сохранить ответ." }, jsonOptions.Value.SerializerOptions, httpContext.RequestAborted);
+            return Results.Empty;
+        }
 
         try
         {
@@ -81,7 +125,26 @@ public static class AgentApiModule
             loggerFactory.CreateLogger("PersonalDashboard.V2.Agent.SearchIndex").LogWarning(error,
                 "Search indexing failed for completed chat turn {TurnId}; the stored chat turn remains available for feed rebuild.", turn.Id);
         }
-        return Results.Ok(new { turn = ToTurnView(turn, proposal) });
+        var view = ToTurnView(turn, proposal);
+        if (stream)
+        {
+            await WriteNdjsonAsync(httpContext, new { type = "result", turn = view }, jsonOptions.Value.SerializerOptions, httpContext.RequestAborted);
+            return Results.Empty;
+        }
+        return Results.Ok(new { turn = view });
+    }
+
+    private static bool WantsNdjson(HttpRequest request) => request.Headers.Accept.Any(value =>
+        value?.Split(',').Any(mediaType => mediaType.Split(';')[0].Trim()
+            .Equals("application/x-ndjson", StringComparison.OrdinalIgnoreCase)) == true);
+
+    private static async Task WriteNdjsonAsync(HttpContext context, object value, JsonSerializerOptions serializerOptions, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!context.Response.HasStarted) await context.Response.StartAsync(cancellationToken);
+        var line = JsonSerializer.Serialize(value, serializerOptions) + "\n";
+        await context.Response.WriteAsync(line, cancellationToken);
+        await context.Response.Body.FlushAsync(cancellationToken);
     }
 
     private static async Task<IResult> ConfirmProposalAsync(Guid conversationId, Guid proposalId,

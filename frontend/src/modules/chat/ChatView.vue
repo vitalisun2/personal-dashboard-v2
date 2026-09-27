@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { chatApi, ProposalConflictError, type ChatEntityEntry, type ChatTurn, type ChatSource } from './chatApi'
 import './chatView.css'
@@ -13,8 +13,13 @@ const activeId = ref<string>()
 const input = ref('')
 const busy = ref(false)
 const error = ref('')
+const optimisticTurns = ref<Array<{ id: number; message: string; progress: string; failed?: boolean }>>([])
 const scrollContainer = ref<HTMLElement | null>(null)
 const inputElement = ref<HTMLTextAreaElement | null>(null)
+let sendSequence = 0
+let loadSequence = 0
+let sendController: AbortController | undefined
+const activeSendId = ref<number | null>(null)
 
 function resizeInput() {
   const el = inputElement.value
@@ -28,54 +33,144 @@ async function scrollBottom() {
   if (scrollContainer.value) scrollContainer.value.scrollTop = scrollContainer.value.scrollHeight
 }
 watch(() => [props.conversationId, props.targetTurnId] as const, async ([id]) => {
+  const loadId = ++loadSequence
+  if (sendController) {
+    sendSequence++
+    sendController.abort()
+    sendController = undefined
+    activeSendId.value = null
+    busy.value = false
+  }
+  busy.value = false
   activeId.value = id
   turns.value = []
+  optimisticTurns.value = []
   error.value = ''
   if (!id) return
   busy.value = true
   try {
     const conversation = await chatApi.get(id, props.targetTurnId)
-    if (activeId.value === id) { turns.value = conversation.turns; await scrollBottom() }
+    if (loadSequence === loadId && activeId.value === id) { turns.value = conversation.turns; await scrollBottom() }
   } catch (cause) {
-    error.value = cause instanceof Error ? cause.message : 'Не удалось загрузить чат.'
-  } finally { busy.value = false }
+    if (loadSequence === loadId && activeId.value === id)
+      error.value = cause instanceof Error ? cause.message : 'Не удалось загрузить чат.'
+  } finally { if (loadSequence === loadId) busy.value = false }
 }, { immediate: true })
+
+onBeforeUnmount(() => {
+  sendSequence++
+  loadSequence++
+  sendController?.abort()
+  sendController = undefined
+})
+
 async function send() {
   const message = input.value.trim()
   if (!message || busy.value) return
   busy.value = true
   error.value = ''
+  for (const failed of optimisticTurns.value.filter(turn => turn.failed)) {
+    turns.value.push({
+      id: `local-${failed.id}`,
+      userMessage: failed.message,
+      assistantMessage: '',
+      scope: { mode: 'general' },
+      requestedModel: 'Gemma',
+      actualModel: 'Gemma',
+      createdAt: new Date().toISOString(),
+      sourceReferences: [],
+      localFailure: failed.progress,
+    })
+  }
+  optimisticTurns.value = optimisticTurns.value.filter(turn => !turn.failed)
+  const sendId = ++sendSequence
+  const controller = new AbortController()
+  sendController = controller
+  activeSendId.value = sendId
+  optimisticTurns.value.push({ id: sendId, message, progress: 'Обрабатываю сообщение…' })
+  input.value = ''
+  await nextTick()
+  resizeInput()
+  await scrollBottom()
+  let serverTurnId: string | undefined
+  const isCurrent = () => sendSequence === sendId && sendController === controller
   try {
     const created = !activeId.value
-    if (created) activeId.value = (await chatApi.create()).id
+    if (created) {
+      const conversation = await chatApi.create(controller.signal)
+      if (!isCurrent()) return
+      activeId.value = conversation.id
+    }
     const id = activeId.value!
     const scope = props.entity
       ? { mode: 'entity' as const, entityType: props.entity.entityType, entityId: props.entity.entityId, entityVersion: props.entity.entityVersion }
       : { mode: 'general' as const }
-    const result = await chatApi.send(id, message, scope)
+    const result = await chatApi.sendWithProgress(id, message, scope, (text, turnId) => {
+      if (!isCurrent()) return
+      const optimistic = optimisticTurns.value.find(turn => turn.id === sendId)
+      if (optimistic) optimistic.progress = text
+      if (turnId) serverTurnId = turnId
+    }, controller.signal)
+    if (!isCurrent()) return
     if (result.turn.proposalId) {
       for (const turn of turns.value) {
         if (turn.proposalStatus === 'Pending') turn.proposalStatus = 'Dismissed'
       }
     }
     turns.value.push(result.turn)
+    optimisticTurns.value = optimisticTurns.value.filter(turn => turn.id !== sendId)
     if (created) {
       const query = { ...route.query }
       query.conversationId = id
       delete query.turnId
-      await router.replace({ query })
+      try { await router.replace({ query }) } catch { /* saved turn remains visible */ }
     }
-    input.value = ''
-    await nextTick()
-    resizeInput()
     await scrollBottom()
   } catch (cause) {
+    if (!isCurrent() || controller.signal.aborted) return
+    // A dropped stream may have completed on the server. Recover only by the
+    // server-issued turn ID; matching user text could select an older turn.
+    if (serverTurnId && activeId.value) {
+      try {
+        const conversation = await chatApi.get(activeId.value, serverTurnId)
+        if (!isCurrent()) return
+        const recovered = conversation.turns.find(turn => turn.id === serverTurnId)
+        if (recovered) {
+          if (recovered.proposalId) {
+            for (const turn of turns.value) if (turn.proposalStatus === 'Pending') turn.proposalStatus = 'Dismissed'
+          }
+          turns.value.push(recovered)
+          optimisticTurns.value = optimisticTurns.value.filter(turn => turn.id !== sendId)
+          await scrollBottom()
+          return
+        }
+      } catch { /* keep the original send error */ }
+    }
+    const optimistic = optimisticTurns.value.find(turn => turn.id === sendId)
+    if (optimistic) {
+      optimistic.failed = true
+      optimistic.progress = 'Ответ не получен. Сообщение не отправлено повторно.'
+    }
     error.value = cause instanceof Error ? cause.message : 'Не удалось отправить сообщение.'
-  } finally { busy.value = false }
+  } finally {
+    if (isCurrent()) {
+      sendController = undefined
+      activeSendId.value = null
+      busy.value = false
+    }
+  }
 }
 async function newConversation() {
-  if (busy.value) return
+  if (busy.value && !sendController) return
+  if (sendController) {
+    sendSequence++
+    sendController.abort()
+    sendController = undefined
+    activeSendId.value = null
+    busy.value = false
+  }
   turns.value = []
+  optimisticTurns.value = []
   activeId.value = undefined
   input.value = ''
   error.value = ''
@@ -205,6 +300,7 @@ watch(input, () => { void nextTick(resizeInput) })
           <div class="chat-row user"><div class="chat-bubble">{{ turn.userMessage }}</div></div>
           <div class="chat-row agent"><div class="chat-answer" :class="{ 'target-turn': turn.id === targetTurnId }">
             <div v-if="turn.assistantMessage && (!isShowResults(turn) || !turn.sourceDetails?.length)" class="chat-bubble">{{ turn.assistantMessage }}</div>
+            <div v-if="turn.localFailure" class="chat-bubble chat-pending-failed">{{ turn.localFailure }}</div>
             <template v-if="isShowResults(turn)" v-for="group in [
               { title: 'Прямые совпадения', sources: turn.sourceDetails?.filter(source => source.matchKind === 'lexical') ?? [] },
               { title: 'По смыслу', sources: turn.sourceDetails?.filter(source => source.matchKind !== 'lexical') ?? [] },
@@ -251,12 +347,20 @@ watch(input, () => { void nextTick(resizeInput) })
             </div>
           </div></div>
         </template>
-        <p v-if="busy" class="chat-state">Подождите…</p>
+        <template v-for="pending in optimisticTurns" :key="`pending-${pending.id}`">
+          <div class="chat-row user"><div class="chat-bubble">{{ pending.message }}</div></div>
+          <div class="chat-row agent"><div class="chat-answer">
+            <div class="chat-bubble chat-pending-bubble" role="status" aria-live="polite" aria-atomic="true">
+              <span>{{ pending.progress }}</span><span v-if="!pending.failed" class="chat-pending-dots" aria-hidden="true"><span v-for="dot in 3" :key="dot">•</span></span>
+            </div>
+          </div></div>
+        </template>
+        <p v-if="busy && activeSendId === null" class="chat-state">Подождите…</p>
         <p v-if="error" class="chat-error" role="alert">{{ error }}</p>
       </div>
     </div>
     <form class="chat-composer" @submit.prevent="send">
-      <textarea ref="inputElement" v-model="input" class="chat-input" rows="1" placeholder="Сообщение агенту…" aria-label="Сообщение агенту" :disabled="busy" @keydown="onInputKeydown" />
+      <textarea ref="inputElement" v-model="input" class="chat-input" rows="1" placeholder="Сообщение агенту…" aria-label="Сообщение агенту" @keydown="onInputKeydown" />
       <button type="submit" class="chat-send" :disabled="busy || !input.trim()" aria-label="Отправить">↑</button>
     </form>
   </section>

@@ -1,4 +1,10 @@
 using System.Text.Json;
+using System.Reflection;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using PersonalDashboard.V2.Agent.Api;
 using PersonalDashboard.V2.Agent.Application;
 using PersonalDashboard.V2.Agent.Domain;
 using PersonalDashboard.V2.Contracts.AgentAccess;
@@ -90,6 +96,123 @@ public sealed class TaskCreationPreparationTests
         Assert.Null(result.Proposal);
         Assert.Contains("поле description", result.Answer, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("пустую строку", result.Answer, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Progress_callback_reports_actual_model_catalog_and_proposal_boundaries_in_order()
+    {
+        var tool = """{"title":"Позвонить","description":"","destination":"backlog","section":"Общее","feature":null,"feature_quote":null,"destination_quote":null}""";
+        var service = CreateService(new Queue<ModelCompletion>([
+            new ModelCompletion(null, [new ModelToolCall("catalog", "list_task_destinations", "{}")]),
+            new ModelCompletion(null, [new ModelToolCall("prepare", "prepare_task", tool)])
+        ]));
+        var progress = new List<(string Stage, string Text)>();
+
+        var result = await service.RespondAsync(Request("Добавь задачу «Позвонить».", progress: (stage, text, _) =>
+        {
+            progress.Add((stage, text));
+            return ValueTask.CompletedTask;
+        }));
+
+        Assert.NotNull(result.Proposal);
+        Assert.Equal(["processing", "catalog", "reasoning", "preparing"], progress.Select(item => item.Stage));
+        Assert.Contains("Обрабатываю", progress[0].Text);
+        Assert.Contains("фичи", progress[1].Text);
+        Assert.DoesNotContain(progress, item => item.Text.Contains("prepare_task", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Ndjson_result_uses_web_json_names_for_nested_search_highlight()
+    {
+        var range = new SearchTextRange(4, 9);
+        var turn = new ChatTurn(Guid.NewGuid(), Guid.NewGuid(), "найди", "нашёл", new("general", null, null, null),
+            "Gemma", "Gemma", ChatModelRoute.Default,
+            [new SearchSourceReference("knowledge", Guid.NewGuid(), 1, "https://example.test", "Источник", null,
+                "Текст", DateTimeOffset.UtcNow, false, null, range)], DateTimeOffset.UtcNow);
+        var toTurnView = typeof(AgentApiModule).GetMethod("ToTurnView", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var view = toTurnView.Invoke(null, [turn, null])!;
+        var context = new DefaultHttpContext();
+        await using var body = new MemoryStream();
+        context.Response.Body = body;
+        var write = typeof(AgentApiModule).GetMethod("WriteNdjsonAsync", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var task = (Task)write.Invoke(null, [context, new { type = "result", turn = view },
+            new JsonSerializerOptions(JsonSerializerDefaults.Web), CancellationToken.None])!;
+        await task;
+
+        body.Position = 0;
+        using var line = await JsonDocument.ParseAsync(body);
+        var highlight = line.RootElement.GetProperty("turn").GetProperty("sourceDetails")[0].GetProperty("highlight");
+        Assert.Equal(4, highlight.GetProperty("start").GetInt32());
+        Assert.Equal(9, highlight.GetProperty("length").GetInt32());
+        Assert.EndsWith("\n", System.Text.Encoding.UTF8.GetString(body.ToArray()));
+    }
+
+    [Fact]
+    public async Task Send_turn_keeps_json_default_and_streams_errors_only_after_progress_starts()
+    {
+        var conversationId = Guid.NewGuid();
+        var unavailableBeforeProgress = await InvokeSendTurnAsync(conversationId, "application/x-ndjson",
+            new ThrowingTurnService((_, _) => throw ModelUnavailable()), CancellationToken.None);
+        Assert.Equal(StatusCodes.Status503ServiceUnavailable, unavailableBeforeProgress.Context.Response.StatusCode);
+        Assert.Contains("application/json", unavailableBeforeProgress.Context.Response.ContentType);
+
+        var unavailableAfterProgress = await InvokeSendTurnAsync(conversationId, "application/x-ndjson",
+            new ThrowingTurnService(async (request, token) =>
+            {
+                await request.Progress!("processing", "Обрабатываю сообщение…", token);
+                throw ModelUnavailable();
+            }), CancellationToken.None);
+        Assert.Equal("application/x-ndjson; charset=utf-8", unavailableAfterProgress.Context.Response.ContentType);
+        var streamed = await ReadLinesAsync(unavailableAfterProgress.Context.Response.Body);
+        Assert.Equal(["progress", "error"], streamed.Select(line => line.RootElement.GetProperty("type").GetString()));
+
+        var normalJson = await InvokeSendTurnAsync(conversationId, "application/json",
+            new ThrowingTurnService((request, _) => Task.FromResult(new AgentTurnResult("Ответ", request.Scope,
+                "Gemma", "Gemma", ChatModelRoute.Default, null, null, []))), CancellationToken.None);
+        Assert.Contains("application/json", normalJson.Context.Response.ContentType);
+        Assert.Single(normalJson.Store.Turns);
+        Assert.DoesNotContain("\"type\":\"result\"", await ReadBodyAsync(normalJson.Context.Response.Body));
+
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => InvokeSendTurnAsync(conversationId,
+            "application/x-ndjson", new ThrowingTurnService((_, _) => throw new OperationCanceledException()), cancellation.Token));
+    }
+
+    private static async Task<(DefaultHttpContext Context, TestChatStore Store)> InvokeSendTurnAsync(Guid conversationId,
+        string accept, IAgentTurnService agent, CancellationToken cancellationToken)
+    {
+        var context = new DefaultHttpContext();
+        context.Request.Headers.Accept = accept;
+        context.RequestAborted = cancellationToken;
+        context.Response.Body = new MemoryStream();
+        var services = new ServiceCollection().AddLogging().ConfigureHttpJsonOptions(_ => { }).BuildServiceProvider();
+        context.RequestServices = services;
+        var store = new TestChatStore();
+        var method = typeof(AgentApiModule).GetMethod("SendTurnAsync", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var requestType = typeof(AgentApiModule).GetNestedType("SendTurnRequest", BindingFlags.NonPublic)!;
+        var request = Activator.CreateInstance(requestType, "Проверь статус", null, null)!;
+        var task = (Task<IResult>)method.Invoke(null, [context, conversationId, request, store, agent,
+            new ImmediateTransactionRunner(), new EmptyIndexer(), services.GetRequiredService<ILoggerFactory>(),
+            services.GetRequiredService<IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>(), cancellationToken])!;
+        var result = await task;
+        await result.ExecuteAsync(context);
+        return (context, store);
+    }
+
+    private static ChatModelUnavailableException ModelUnavailable() => new("offline", new InvalidOperationException());
+
+    private static async Task<List<JsonDocument>> ReadLinesAsync(Stream stream)
+    {
+        var body = await ReadBodyAsync(stream);
+        return body.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => JsonDocument.Parse(line)).ToList();
+    }
+
+    private static async Task<string> ReadBodyAsync(Stream stream)
+    {
+        stream.Position = 0;
+        using var reader = new StreamReader(stream, leaveOpen: true);
+        return await reader.ReadToEndAsync();
     }
 
     [Fact]
@@ -222,9 +345,9 @@ public sealed class TaskCreationPreparationTests
     private static AgentTurnService CreateService(Queue<ModelCompletion> calls, IReadOnlyList<TaskFeatureTarget>? features = null) => new(
         new QueueRouter(calls), new EmptySearch(), new EmptyKnowledge(), new CatalogPlanning(features), new CatalogTasks());
 
-    private static AgentTurnRequest Request(string prompt, ChatProposal? pending = null) => new(Guid.NewGuid(), Guid.NewGuid(), prompt,
+    private static AgentTurnRequest Request(string prompt, ChatProposal? pending = null, Func<string, string, CancellationToken, ValueTask>? progress = null) => new(Guid.NewGuid(), Guid.NewGuid(), prompt,
         new AgentScope("general", null, null, null), "Gemma", ChatModelRoute.Default,
-        pending is null ? [] : [ProposalDraftContext.ToMessage(pending)], PendingProposal: pending);
+        pending is null ? [] : [ProposalDraftContext.ToMessage(pending)], PendingProposal: pending, Progress: progress);
 
     private sealed class QueueRouter(Queue<ModelCompletion> calls) : IChatModelRouter
     {
@@ -272,6 +395,32 @@ public sealed class TaskCreationPreparationTests
     {
         public Task ExecuteAsync(Func<CancellationToken, Task> operation, CancellationToken cancellationToken = default) => operation(cancellationToken);
         public Task<TResult> ExecuteAsync<TResult>(Func<CancellationToken, Task<TResult>> operation, CancellationToken cancellationToken = default) => operation(cancellationToken);
+    }
+    private sealed class ThrowingTurnService(Func<AgentTurnRequest, CancellationToken, Task<AgentTurnResult>> respond) : IAgentTurnService
+    {
+        public Task<AgentTurnResult> RespondAsync(AgentTurnRequest request, CancellationToken cancellationToken = default) => respond(request, cancellationToken);
+    }
+    private sealed class EmptyIndexer : ISearchIndexer
+    {
+        public Task UpsertAsync(SearchIndexSource source, CancellationToken cancellationToken = default) => Task.CompletedTask;
+        public Task DeleteAsync(string kind, Guid id, long version, CancellationToken cancellationToken = default) => Task.CompletedTask;
+    }
+    private sealed class TestChatStore : IChatConversationStore
+    {
+        public List<ChatTurn> Turns { get; } = [];
+        public Task<ChatConversationState?> GetConversationAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<ChatConversationState?>(new(id, "Test", DateTimeOffset.UtcNow));
+        public Task<ChatConversationState> CreateConversationAsync(Guid id, string? title, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<ChatConversationPage> ListConversationsAsync(string? cursor, int pageSize, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task DeleteConversationAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<IReadOnlyList<ChatTurn>> GetRecentTurnsAsync(Guid conversationId, int limit, CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<ChatTurn>>([]);
+        public Task<ChatTurnPage> GetTurnsPageAsync(Guid conversationId, string? cursor, int pageSize, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task AppendTurnAsync(ChatTurn turn, CancellationToken cancellationToken = default) { Turns.Add(turn); return Task.CompletedTask; }
+        public Task<ChatProposal?> GetProposalAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<ChatProposal?>(null);
+        public Task<ChatProposal?> GetProposalForTurnAsync(Guid turnId, CancellationToken cancellationToken = default) => Task.FromResult<ChatProposal?>(null);
+        public Task<ChatProposal?> GetPendingProposalAsync(Guid conversationId, CancellationToken cancellationToken = default) => Task.FromResult<ChatProposal?>(null);
+        public Task SaveProposalAsync(ChatProposal proposal, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+        public Task<int> DismissPendingProposalsAsync(Guid conversationId, CancellationToken cancellationToken = default) => Task.FromResult(0);
+        public Task<bool> TryChangeProposalStateAsync(Guid id, ChatProposalState expectedState, ChatProposalState newState, Guid? confirmationId, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     }
     private sealed class MemoryTasksRepository : ITasksRepository
     {
