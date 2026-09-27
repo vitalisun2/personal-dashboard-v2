@@ -1,0 +1,15 @@
+{
+  "version": "1",
+  "frozenAtUtc": "2026-09-27T10:06:04.1611249Z",
+  "judgmentsFrozenBeforeModelRuns": true,
+  "documentCount": 48,
+  "queryCount": 36,
+  "devCount": 24,
+  "testCount": 12,
+  "noAnswerPerSplit": 2,
+  "heldOutMultiPositiveCount": 2,
+  "files": {
+    "corpus.json": "35d6cc4fed1aba5bc9b1bab9bdf46399b5cce31aa3559d960acee2b20507116f",
+    "queries.json": "b5bc1dadc69765c018da4bbb1b415ea2a74d719f17be9a74ed9f3afa2bdcd030"
+  }
+}

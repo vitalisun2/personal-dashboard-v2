@@ -6,11 +6,19 @@ using Microsoft.Extensions.Configuration;
 namespace PersonalDashboard.V2.Search.Infrastructure;
 
 /// <summary>Small adapter for Ollama's /api/embed endpoint used by both indexing and query search.</summary>
-public sealed class OllamaEmbeddingClient(HttpClient httpClient, IConfiguration configuration)
+public sealed class OllamaEmbeddingClient(HttpClient httpClient, IConfiguration configuration, SemanticSearchOptions searchOptions)
 {
     private readonly string _endpoint = (configuration["OLLAMA_URL"] ?? "http://localhost:11434").TrimEnd('/') + "/api/embed";
     private readonly string _model = configuration["OLLAMA_EMBED_MODEL"] ?? "embeddinggemma";
     public string ModelName => _model;
+    public string EmbeddingIdentity => searchOptions.EmbeddingIdentity(_model);
+
+    public async Task<float[]> EmbedQueryAsync(string query, CancellationToken cancellationToken = default)
+        => (await EmbedAsync([searchOptions.QueryInput(query)], cancellationToken))[0];
+
+    public Task<IReadOnlyList<float[]>> EmbedDocumentsAsync(IReadOnlyList<string> documents,
+        CancellationToken cancellationToken = default)
+        => EmbedAsync(documents.Select(searchOptions.DocumentInput).ToArray(), cancellationToken);
 
     public async Task<IReadOnlyList<float[]>> EmbedAsync(IReadOnlyList<string> input,
         CancellationToken cancellationToken = default)

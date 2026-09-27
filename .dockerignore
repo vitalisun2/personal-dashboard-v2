@@ -5,3 +5,6 @@ frontend/dist/
 mockup/
 .env
 .env.*
+evaluation/
+**/__pycache__/
+.codex-remote-attachments/

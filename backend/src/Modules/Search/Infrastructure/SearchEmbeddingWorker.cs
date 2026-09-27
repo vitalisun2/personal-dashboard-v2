@@ -45,11 +45,11 @@ internal sealed class SearchEmbeddingWorker(IServiceScopeFactory scopeFactory, I
         var embedder = scope.ServiceProvider.GetRequiredService<OllamaEmbeddingClient>();
 
         await db.Database.OpenConnectionAsync(cancellationToken);
-        var pending = await ReadPendingAsync(db, embedder.ModelName, cancellationToken);
+        var pending = await ReadPendingAsync(db, embedder.EmbeddingIdentity, cancellationToken);
         await db.Database.CloseConnectionAsync();
         if (pending.Count == 0) return 0;
 
-        var vectors = await embedder.EmbedAsync(pending.Select(item => item.SearchableText).ToArray(), cancellationToken);
+        var vectors = await embedder.EmbedDocumentsAsync(pending.Select(item => item.SearchableText).ToArray(), cancellationToken);
         await db.Database.OpenConnectionAsync(cancellationToken);
         for (var index = 0; index < pending.Count; index++)
         {
@@ -67,7 +67,7 @@ internal sealed class SearchEmbeddingWorker(IServiceScopeFactory scopeFactory, I
                           AND source.version = chunk.source_version AND source.is_deleted = false);
                 """;
             Add(command, "embedding", OllamaEmbeddingClient.ToVectorLiteral(vectors[index]));
-            Add(command, "model", embedder.ModelName);
+            Add(command, "model", embedder.EmbeddingIdentity);
             Add(command, "kind", item.Kind);
             Add(command, "id", item.Id);
             Add(command, "version", item.Version);

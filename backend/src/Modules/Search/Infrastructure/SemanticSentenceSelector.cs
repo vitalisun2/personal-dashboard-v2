@@ -26,7 +26,7 @@ internal sealed class SemanticSentenceSelector(OllamaEmbeddingClient embedder, I
                 .ToArray();
             if (sentences.Length == 0) return candidates;
 
-            var embeddings = await embedder.EmbedAsync(sentences.Select(sentence => sentence.Text).ToArray(), cancellationToken);
+            var embeddings = await embedder.EmbedDocumentsAsync(sentences.Select(sentence => sentence.Text).ToArray(), cancellationToken);
             var matches = sentences.Zip(embeddings, (sentence, embedding) => new
                 {
                     Sentence = sentence,

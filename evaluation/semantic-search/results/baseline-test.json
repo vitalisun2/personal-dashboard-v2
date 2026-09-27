@@ -1,0 +1,498 @@
+{
+  "label": "baseline",
+  "startedUtc": "2026-09-27T10:07:10.266499+00:00",
+  "fixtureHash": "d63efc9a246b22dd61a9d7604776ff9edc817e06c6b522a41a570e376d3f6624",
+  "configuration": {
+    "environment": {
+      "V2_SEARCH_MIN_SEMANTIC_SIMILARITY": "0.25",
+      "OLLAMA_EMBED_MODEL": "embeddinggemma",
+      "V2_SEARCH_MIN_SEMANTIC_LEAD": "0.04",
+      "OLLAMA_CHAT_MODEL": "gemma4:e4b-it-qat"
+    },
+    "image": "sha256:1b9499a5d7aa71aab5b4509a1ec7b9c31b09d819119671c28effd87018186043",
+    "modelDigests": {
+      "embeddinggemma:latest": "85462619ee721b466c5927d109d4cb765861907d5417b9109caebc4e614679f1",
+      "gemma4:e4b-it-qat": "ee665637121887cf3befff38abbb1be4ee117c7db867d97a67e29049ecd7e15f"
+    },
+    "workspaceSearchSourceHashes": {
+      "Api\\ModuleRegistration.cs": "e594b321aaf533106f82c64e031875eaccfa86fa826052da01cf8794114903ee",
+      "Api\\PersonalDashboard.V2.Search.Api.csproj": "9d80796a38dd835761b97822ce0bd1f3b15a8345b6b9dae81d1fb1bfc85cc87f",
+      "Application\\ISearchCandidateStore.cs": "0fdc08633be32ccb2c48ec9fb8a298dc71be3e9325af90d386f4f197fee70273",
+      "Application\\PersonalDashboard.V2.Search.Application.csproj": "5d38588e88b97ce676df2144c83651026af54741e8feec9c9ffbad1ec0106870",
+      "Application\\SearchIndexRebuilder.cs": "992176faf868475379d4e33b4522ff4fbb5f2390c26b82f45e93592ac96e8947",
+      "Application\\SearchService.cs": "1bccba56b10a84a23cb3cde798e217793593e6080bbeb05957f41a7eaa14952c",
+      "Domain\\HybridSearch.cs": "7ce3b3e2ffca9a5ad1ca353d496c21c3290539b3a60c207e06d1d4b972a20d68",
+      "Domain\\PersonalDashboard.V2.Search.Domain.csproj": "92058f239708d6092a558b2507d3d449d829ae754178253ba8ed260fe886645c",
+      "Domain\\SearchCandidate.cs": "e66a40fb2053fd5b0d20d5672c2ad294ca83f83b6c5d8b7d169bdece4d42559d",
+      "Domain\\SearchChunker.cs": "fb850b60afa1474463f517cb754054e47c9677f808a5b0dcadfc82b9cfebcd22",
+      "Domain\\SearchTerms.cs": "598cd7e43573686ac765a0ced93a919977b2ed6b985fd8ea81308cfd1c5290dc",
+      "Domain\\SemanticConfidence.cs": "1f136dbd922da576f48814744380ec98cc09ebd9804943e5c580c9af4ec9bdd0",
+      "Domain\\SentenceSegmenter.cs": "eb3304825c56dee75b8823cddfdd638008f04c87fc05c223737d1678097f05a2",
+      "Infrastructure\\ModuleRegistration.cs": "3ecb00fbd4010ab8682a2b68b57a1ff2c725df30fef5cf957ce14524135cbc4a",
+      "Infrastructure\\OllamaEmbeddingClient.cs": "3554f1817ef66be3d04d115b547e5aa37cc7f934df3721bbaf2e100006f4034f",
+      "Infrastructure\\OllamaSemanticReranker.cs": "358dbf7936bdf72b8e67707734b19c972176ba05addb6072beb44ffa46a9d14a",
+      "Infrastructure\\PersonalDashboard.V2.Search.Infrastructure.csproj": "d9b756f5eeec759d443b066e7e7c10334c2972f84f643965aec7ee3f4e700795",
+      "Infrastructure\\PostgresSearchCandidateStore.cs": "6854c5e741847f24582e4e2cb30b0483edc58179455e4b73ee9e0236550e1c4f",
+      "Infrastructure\\PostgresSearchIndexer.cs": "3b9d1ca4b84e6defabd7322ca6aaaeb1da8d26da21ea24a4309ef6b914462941",
+      "Infrastructure\\SearchEmbeddingWorker.cs": "e44b93a22dd891f32fbc379d617469ab071a3002abe751a529dc05baa8f1f591",
+      "Infrastructure\\SearchJournalCatchUpWorker.cs": "9b16fd291102ae0014f5606df4d5c6c5d7877a357e0f6b8222b2508d9e5a92b4",
+      "Infrastructure\\SearchSchemaInitializer.cs": "79f2516a743710477902f4935d5db59b0f4170accbc8768d769622a8d72a1301",
+      "Infrastructure\\SemanticCandidateSelector.cs": "e6b0488cbb2e73bed7b2cec85f11b3e2d7334d5249430fbdf14b106465daacfb",
+      "Infrastructure\\SemanticSearchOptions.cs": "fe70b94ed5f7e022deb4564a70613cd6b313eada6d257be0115c0d5d97262f6c",
+      "Infrastructure\\SemanticSentenceSelector.cs": "b6584e70f541c6b04451c736a28a3f7366216c99c9e36c472e2589bfef7f9610",
+      "Tests\\HybridSearchTests.cs": "6c76ea651135b87e1e60ae9255c17bf8554ecbc614c4bf4276a807dc935ca204",
+      "Tests\\PersonalDashboard.V2.Search.Tests.csproj": "ba2ad6d1a9e91343f1891c3b6dcd11e335f7426c522ad3044fb497d5b1d3ffef",
+      "Tests\\SearchCatchUpIntegrationTests.cs": "4d19622e9f342fee3834973b50302bc54ad2d373c9a9cbc3d0ad5a1e6fdc5663",
+      "Tests\\SemanticProfileTests.cs": "527fcca0e38fc0f9862c6ec4ee09bb377ab29de68fc0c9b591665c13209d41ed"
+    },
+    "gitHead": "15a02a8b92c5bbf876baf96b1b80ae5666fa9a37",
+    "workingDiffSha256": "0a6cb826f72f20f02e28c14bc44348791e2198164a005a0aaaaecbc714073b62"
+  },
+  "rows": [
+    {
+      "id": "Q06",
+      "split": "test",
+      "query": "Чем подтянуть гайку на шланге под мойкой, если обычный инструмент не подходит по размеру?",
+      "expected": [
+        {
+          "id": "D09",
+          "grade": 2
+        }
+      ],
+      "actual": [
+        "D09",
+        "D38",
+        "D29",
+        "D28",
+        "D08"
+      ],
+      "similarities": [
+        0.6175677215730263,
+        0.3346221048090927,
+        0.303233436417506,
+        0.28965004723817733,
+        0.2882259482866407
+      ],
+      "elapsedMs": 590.5,
+      "coverageNote": "Показаны наиболее релевантные результаты. Для проверки полноты выберите «Найти всё». Смысловой поиск оценивает ближайшие векторные совпадения.",
+      "unavailable": false,
+      "fallback": false,
+      "metrics": {
+        "precisionReturned": 0.2,
+        "recallAt5": 1.0,
+        "ndcgAt5": 1.0,
+        "reciprocalRank": 1.0,
+        "noAnswerCorrect": null,
+        "hardNegativeCount": 2,
+        "falsePositiveCount": 4
+      }
+    },
+    {
+      "id": "Q08",
+      "split": "test",
+      "query": "Не получается начать следующий забег: запас попыток кончился. Можно ли снова играть, ничего не покупая?",
+      "expected": [
+        {
+          "id": "D12",
+          "grade": 2
+        }
+      ],
+      "actual": [
+        "D12",
+        "D20",
+        "D37",
+        "D40",
+        "D01"
+      ],
+      "similarities": [
+        0.48973939006230804,
+        0.3239921293310323,
+        0.3043168381606367,
+        0.2869629730340062,
+        0.2833339840170357
+      ],
+      "elapsedMs": 282.8,
+      "coverageNote": "Показаны наиболее релевантные результаты. Для проверки полноты выберите «Найти всё». Смысловой поиск оценивает ближайшие векторные совпадения.",
+      "unavailable": false,
+      "fallback": false,
+      "metrics": {
+        "precisionReturned": 0.2,
+        "recallAt5": 1.0,
+        "ndcgAt5": 1.0,
+        "reciprocalRank": 1.0,
+        "noAnswerCorrect": null,
+        "hardNegativeCount": 1,
+        "falsePositiveCount": 4
+      }
+    },
+    {
+      "id": "Q10",
+      "split": "test",
+      "query": "После поездки в другой пояс созвоны показываются не в те часы. Как исправить отображение, не передвигая встречи для остальных?",
+      "expected": [
+        {
+          "id": "D15",
+          "grade": 2
+        }
+      ],
+      "actual": [
+        "D15",
+        "D26",
+        "D27",
+        "D03",
+        "D10"
+      ],
+      "similarities": [
+        0.5612593074109686,
+        0.4167640134605204,
+        0.32519285610685245,
+        0.3139061775431209,
+        0.3016239816103069
+      ],
+      "elapsedMs": 508.1,
+      "coverageNote": "Показаны наиболее релевантные результаты. Для проверки полноты выберите «Найти всё». Смысловой поиск оценивает ближайшие векторные совпадения.",
+      "unavailable": false,
+      "fallback": false,
+      "metrics": {
+        "precisionReturned": 0.2,
+        "recallAt5": 1.0,
+        "ndcgAt5": 1.0,
+        "reciprocalRank": 1.0,
+        "noAnswerCorrect": null,
+        "hardNegativeCount": 1,
+        "falsePositiveCount": 4
+      }
+    },
+    {
+      "id": "Q12",
+      "split": "test",
+      "query": "Одинаковые картинки лежат под разными именами. Как отличить точные копии от просто похожих кадров?",
+      "expected": [
+        {
+          "id": "D17",
+          "grade": 2
+        }
+      ],
+      "actual": [
+        "D17",
+        "D16",
+        "D18",
+        "D27",
+        "D02"
+      ],
+      "similarities": [
+        0.5679656782191224,
+        0.35527576741269273,
+        0.3116873951703649,
+        0.30933937708718273,
+        0.2887187944315448
+      ],
+      "elapsedMs": 258.1,
+      "coverageNote": "Показаны наиболее релевантные результаты. Для проверки полноты выберите «Найти всё». Смысловой поиск оценивает ближайшие векторные совпадения.",
+      "unavailable": false,
+      "fallback": false,
+      "metrics": {
+        "precisionReturned": 0.2,
+        "recallAt5": 1.0,
+        "ndcgAt5": 1.0,
+        "reciprocalRank": 1.0,
+        "noAnswerCorrect": null,
+        "hardNegativeCount": 2,
+        "falsePositiveCount": 4
+      }
+    },
+    {
+      "id": "Q18",
+      "split": "test",
+      "query": "Документы исправны, но получить ZIP не удаётся только у проекта со смайликом в названии. Что исправить?",
+      "expected": [
+        {
+          "id": "D27",
+          "grade": 2
+        }
+      ],
+      "actual": [
+        "D27",
+        "D19",
+        "D17",
+        "D07",
+        "D35"
+      ],
+      "similarities": [
+        0.4679406824006278,
+        0.3578850369727523,
+        0.3408796868611128,
+        0.30997922301540326,
+        0.30610076505247164
+      ],
+      "elapsedMs": 285.2,
+      "coverageNote": "Показаны наиболее релевантные результаты. Для проверки полноты выберите «Найти всё». Смысловой поиск оценивает ближайшие векторные совпадения.",
+      "unavailable": false,
+      "fallback": false,
+      "metrics": {
+        "precisionReturned": 0.2,
+        "recallAt5": 1.0,
+        "ndcgAt5": 1.0,
+        "reciprocalRank": 1.0,
+        "noAnswerCorrect": null,
+        "hardNegativeCount": 0,
+        "falsePositiveCount": 4
+      }
+    },
+    {
+      "id": "Q23",
+      "split": "test",
+      "query": "После обрыва связи изменения отправляются ещё раз и появляются лишние записи. Как сделать повтор безопасным, даже если первый ответ потерялся?",
+      "expected": [
+        {
+          "id": "D34",
+          "grade": 2
+        },
+        {
+          "id": "D23",
+          "grade": 1
+        }
+      ],
+      "actual": [],
+      "similarities": [],
+      "elapsedMs": 24.2,
+      "coverageNote": "Показаны наиболее релевантные результаты. Для проверки полноты выберите «Найти всё». Смысловой поиск оценивает ближайшие векторные совпадения.",
+      "unavailable": false,
+      "fallback": false,
+      "metrics": {
+        "precisionReturned": 0.0,
+        "recallAt5": 0.0,
+        "ndcgAt5": 0.0,
+        "reciprocalRank": 0.0,
+        "noAnswerCorrect": null,
+        "hardNegativeCount": 0,
+        "falsePositiveCount": 0
+      }
+    },
+    {
+      "id": "Q24",
+      "split": "test",
+      "query": "Как убедиться, что личные записи удастся вернуть после выхода накопителя из строя, а не просто увидеть папку с копиями?",
+      "expected": [
+        {
+          "id": "D36",
+          "grade": 2
+        }
+      ],
+      "actual": [
+        "D36",
+        "D18",
+        "D20",
+        "D40",
+        "D16"
+      ],
+      "similarities": [
+        0.5510071351824184,
+        0.4750526435595047,
+        0.41212397633137887,
+        0.3791568145120734,
+        0.37422828751122905
+      ],
+      "elapsedMs": 228.9,
+      "coverageNote": "Показаны наиболее релевантные результаты. Для проверки полноты выберите «Найти всё». Смысловой поиск оценивает ближайшие векторные совпадения.",
+      "unavailable": false,
+      "fallback": false,
+      "metrics": {
+        "precisionReturned": 0.2,
+        "recallAt5": 1.0,
+        "ndcgAt5": 1.0,
+        "reciprocalRank": 1.0,
+        "noAnswerCorrect": null,
+        "hardNegativeCount": 3,
+        "falsePositiveCount": 4
+      }
+    },
+    {
+      "id": "Q28",
+      "split": "test",
+      "query": "Учебный шаг переименовали, и старый прогресс стал начинаться сначала. Как поддержать прежнее сохранение без догадок о любых незнакомых значениях?",
+      "expected": [
+        {
+          "id": "D40",
+          "grade": 2
+        }
+      ],
+      "actual": [
+        "D40",
+        "D07",
+        "D20",
+        "D26",
+        "D27"
+      ],
+      "similarities": [
+        0.546955043932387,
+        0.3050637361369295,
+        0.3039174366243421,
+        0.30059052099159045,
+        0.2699703428034669
+      ],
+      "elapsedMs": 516.5,
+      "coverageNote": "Показаны наиболее релевантные результаты. Для проверки полноты выберите «Найти всё». Смысловой поиск оценивает ближайшие векторные совпадения.",
+      "unavailable": false,
+      "fallback": false,
+      "metrics": {
+        "precisionReturned": 0.2,
+        "recallAt5": 1.0,
+        "ndcgAt5": 1.0,
+        "reciprocalRank": 1.0,
+        "noAnswerCorrect": null,
+        "hardNegativeCount": 1,
+        "falsePositiveCount": 4
+      }
+    },
+    {
+      "id": "Q31",
+      "split": "test",
+      "query": "Как на пару часов убрать отвлекающие сигналы, сохранив возможность срочного звонка от близких?",
+      "expected": [
+        {
+          "id": "D46",
+          "grade": 2
+        },
+        {
+          "id": "D47",
+          "grade": 2
+        }
+      ],
+      "actual": [
+        "D47",
+        "D46",
+        "D10",
+        "D42",
+        "D18"
+      ],
+      "similarities": [
+        0.43284350811866346,
+        0.39031333970885007,
+        0.33770263195041683,
+        0.31276903501372333,
+        0.28466692566874885
+      ],
+      "elapsedMs": 191.6,
+      "coverageNote": "Показаны наиболее релевантные результаты. Для проверки полноты выберите «Найти всё». Смысловой поиск оценивает ближайшие векторные совпадения.",
+      "unavailable": false,
+      "fallback": false,
+      "metrics": {
+        "precisionReturned": 0.4,
+        "recallAt5": 1.0,
+        "ndcgAt5": 1.0,
+        "reciprocalRank": 1.0,
+        "noAnswerCorrect": null,
+        "hardNegativeCount": 1,
+        "falsePositiveCount": 3
+      }
+    },
+    {
+      "id": "Q32",
+      "split": "test",
+      "query": "Хочу получать все сегодняшние дела одной подборкой с утра, чтобы перенос каждого пункта не дёргал меня весь день.",
+      "expected": [
+        {
+          "id": "D48",
+          "grade": 2
+        }
+      ],
+      "actual": [
+        "D48",
+        "D43",
+        "D38",
+        "D14",
+        "D44"
+      ],
+      "similarities": [
+        0.46261949906727795,
+        0.40300906771043166,
+        0.37022238969807064,
+        0.335145045449712,
+        0.3338947692670451
+      ],
+      "elapsedMs": 227.5,
+      "coverageNote": "Показаны наиболее релевантные результаты. Для проверки полноты выберите «Найти всё». Смысловой поиск оценивает ближайшие векторные совпадения.",
+      "unavailable": false,
+      "fallback": false,
+      "metrics": {
+        "precisionReturned": 0.2,
+        "recallAt5": 1.0,
+        "ndcgAt5": 1.0,
+        "reciprocalRank": 1.0,
+        "noAnswerCorrect": null,
+        "hardNegativeCount": 1,
+        "falsePositiveCount": 4
+      }
+    },
+    {
+      "id": "Q35",
+      "split": "test",
+      "query": "На какую дату мы записали кота на прививку и где находится ветеринарная клиника?",
+      "expected": [],
+      "actual": [],
+      "similarities": [],
+      "elapsedMs": 23.3,
+      "coverageNote": "Показаны наиболее релевантные результаты. Для проверки полноты выберите «Найти всё». Смысловой поиск оценивает ближайшие векторные совпадения.",
+      "unavailable": false,
+      "fallback": false,
+      "metrics": {
+        "precisionReturned": 1.0,
+        "recallAt5": null,
+        "ndcgAt5": null,
+        "reciprocalRank": null,
+        "noAnswerCorrect": true,
+        "hardNegativeCount": 0,
+        "falsePositiveCount": 0
+      }
+    },
+    {
+      "id": "Q36",
+      "split": "test",
+      "query": "Я забыл пароль от зашифрованного архива. Где записана подсказка, позволяющая его открыть?",
+      "expected": [],
+      "actual": [],
+      "similarities": [],
+      "elapsedMs": 21.7,
+      "coverageNote": "Показаны наиболее релевантные результаты. Для проверки полноты выберите «Найти всё». Смысловой поиск оценивает ближайшие векторные совпадения.",
+      "unavailable": false,
+      "fallback": false,
+      "metrics": {
+        "precisionReturned": 1.0,
+        "recallAt5": null,
+        "ndcgAt5": null,
+        "reciprocalRank": null,
+        "noAnswerCorrect": true,
+        "hardNegativeCount": 0,
+        "falsePositiveCount": 0
+      }
+    }
+  ],
+  "embeddingIdentity": "embeddinggemma",
+  "summary": {
+    "test": {
+      "queries": 12,
+      "precisionReturned": 0.33333333333333337,
+      "recallAt5": 0.9,
+      "ndcgAt5": 0.9,
+      "reciprocalRank": 0.9,
+      "noAnswerCorrect": 1,
+      "hardNegatives": 12,
+      "medianMs": 243.5,
+      "p95Ms": 590.5,
+      "fallbacks": 0
+    },
+    "all": {
+      "queries": 12,
+      "precisionReturned": 0.33333333333333337,
+      "recallAt5": 0.9,
+      "ndcgAt5": 0.9,
+      "reciprocalRank": 0.9,
+      "noAnswerCorrect": 1,
+      "hardNegatives": 12,
+      "medianMs": 243.5,
+      "p95Ms": 590.5,
+      "fallbacks": 0
+    }
+  }
+}

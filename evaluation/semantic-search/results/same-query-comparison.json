@@ -1,0 +1,65 @@
+{
+  "queryIds": [
+    "Q01",
+    "Q02",
+    "Q03",
+    "Q04",
+    "Q05",
+    "Q07",
+    "Q09",
+    "Q11",
+    "Q13",
+    "Q14",
+    "Q15",
+    "Q16",
+    "Q17",
+    "Q19",
+    "Q20",
+    "Q21",
+    "Q22",
+    "Q25",
+    "Q26"
+  ],
+  "profiles": {
+    "baseline": {
+      "queries": 19,
+      "precisionReturned": 0.19473684210526318,
+      "recallAt5": 0.8947368421052632,
+      "ndcgAt5": 0.8947368421052632,
+      "reciprocalRank": 0.8947368421052632,
+      "noAnswerCorrect": null,
+      "hardNegatives": 26,
+      "falsePositives": 65,
+      "medianMs": 210.7,
+      "p95Ms": 448.6,
+      "fallbacks": 0
+    },
+    "prompted": {
+      "queries": 19,
+      "precisionReturned": 0.9473684210526315,
+      "recallAt5": 1.0,
+      "ndcgAt5": 1.0,
+      "reciprocalRank": 1.0,
+      "noAnswerCorrect": null,
+      "hardNegatives": 1,
+      "falsePositives": 2,
+      "medianMs": 66.0,
+      "p95Ms": 541.3,
+      "fallbacks": 0
+    },
+    "reranked": {
+      "queries": 19,
+      "precisionReturned": 0.8596491228070176,
+      "recallAt5": 1.0,
+      "ndcgAt5": 1.0,
+      "reciprocalRank": 1.0,
+      "noAnswerCorrect": null,
+      "hardNegatives": 4,
+      "falsePositives": 6,
+      "medianMs": 18937.5,
+      "p95Ms": 24170.9,
+      "fallbacks": 0
+    }
+  },
+  "note": "Only the identical completed subset; Gemma experiment stopped at user request. No claim of full held-out evaluation for Gemma."
+}

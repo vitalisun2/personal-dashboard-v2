@@ -13,7 +13,8 @@ namespace PersonalDashboard.V2.Search.Infrastructure;
 internal sealed class PostgresSearchCandidateStore(
     PlatformDbContext db,
     OllamaEmbeddingClient embedder,
-    SemanticConfidencePolicy semanticConfidence,
+    SemanticSearchOptions searchOptions,
+    SemanticCandidateSelector semanticSelector,
     SemanticSentenceSelector sentenceSelector,
     ILogger<PostgresSearchCandidateStore> logger) : ISearchCandidateStore
 {
@@ -27,7 +28,7 @@ internal sealed class PostgresSearchCandidateStore(
         string? coverageNote = null;
         try
         {
-            queryEmbedding = (await embedder.EmbedAsync([criteria.Query], cancellationToken))[0];
+            queryEmbedding = await embedder.EmbedQueryAsync(criteria.Query, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -42,7 +43,9 @@ internal sealed class PostgresSearchCandidateStore(
         var candidates = await ReadCandidatesAsync(criteria, queryEmbedding, mode, cancellationToken);
         if (criteria.SemanticOnly)
         {
-            candidates = semanticConfidence.Select(candidates).ToList();
+            var selection = await semanticSelector.SelectAsync(criteria.Query, candidates, cancellationToken);
+            candidates = selection.Candidates.ToList();
+            coverageNote = selection.CoverageNote;
             candidates = (await sentenceSelector.AddMatchesAsync(candidates, queryEmbedding!, cancellationToken)).ToList();
         }
         var embeddingsPending = await HasPendingEmbeddingsAsync(cancellationToken);
@@ -87,6 +90,17 @@ internal sealed class PostgresSearchCandidateStore(
         var limit = criteria.SemanticOnly
             ? $"LIMIT {SemanticCandidateLimit}"
             : mode == SearchCoverageMode.Exhaustive ? string.Empty : $"LIMIT {RelevantCandidateLimit}";
+        // A long source must not occupy all 50 slots. Keep legacy chunk retrieval in the baseline.
+        var bestSourceChunk = criteria.SemanticOnly && searchOptions.DiversifySources
+            ? """
+              AND chunk.chunk_index = (
+                  SELECT peer.chunk_index FROM search_chunks AS peer
+                   WHERE peer.kind = chunk.kind AND peer.source_id = chunk.source_id
+                     AND peer.embedding_model = @embedding_model AND peer.embedding IS NOT NULL
+                   ORDER BY peer.embedding <=> CAST(@embedding AS vector), peer.chunk_index
+                   LIMIT 1)
+              """
+            : string.Empty;
         var terms = SearchTerms.Significant(criteria.Query);
         var ftsQuery = string.Join(" | ", terms);
         var termPatterns = terms.Select(term => LiteralPattern(term)).ToArray();
@@ -111,6 +125,7 @@ internal sealed class PostgresSearchCandidateStore(
                 AND (CAST(@entity_id AS uuid) IS NULL OR source.chat_entity_id = CAST(@entity_id AS uuid))
                 AND (CAST(@entity_version AS bigint) IS NULL OR source.chat_entity_version = CAST(@entity_version AS bigint))))
                AND ({matchPredicate})
+               {bestSourceChunk}
              ORDER BY {ordering}
              {limit};
             """;
@@ -130,8 +145,8 @@ internal sealed class PostgresSearchCandidateStore(
         if (hasEmbedding)
         {
             Add(command, "embedding", OllamaEmbeddingClient.ToVectorLiteral(queryEmbedding!));
-            Add(command, "embedding_model", embedder.ModelName);
-            if (!criteria.SemanticOnly) Add(command, "minimum_similarity", semanticConfidence.MinimumSimilarity);
+            Add(command, "embedding_model", embedder.EmbeddingIdentity);
+            if (!criteria.SemanticOnly) Add(command, "minimum_similarity", searchOptions.MinimumSimilarity);
         }
 
         var candidates = new List<SearchCandidate>();
@@ -164,7 +179,7 @@ internal sealed class PostgresSearchCandidateStore(
                  AND source.version = chunk.source_version AND source.is_deleted = false
                 WHERE chunk.embedding IS NULL OR chunk.embedding_model IS DISTINCT FROM @model);
             """;
-        Add(command, "model", embedder.ModelName);
+        Add(command, "model", embedder.EmbeddingIdentity);
         return (bool)(await command.ExecuteScalarAsync(cancellationToken) ?? false);
     }
 

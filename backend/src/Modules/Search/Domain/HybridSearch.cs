@@ -16,13 +16,15 @@ public static class HybridSearch
         var filtered = candidates.Where(c => PassesFilters(c.Source, request))
             .Select(c => (Candidate: c, Lexical: LexicalScore(query, terms, c)))
             .Where(x => request.SemanticOnly
-                ? x.Candidate.SemanticScore is > 0
+                ? (x.Candidate.RerankScore ?? x.Candidate.SemanticScore) is > 0
                 : x.Lexical > 0 || x.Candidate.SemanticScore is > 0 || x.Candidate.FullTextScore is > 0)
             .ToArray();
 
         var lexicalRanks = Ranks(filtered, x => x.Lexical);
         var fullTextRanks = Ranks(filtered, x => x.Candidate.FullTextScore ?? 0);
-        var semanticRanks = Ranks(filtered, x => x.Candidate.SemanticScore ?? 0);
+        var semanticRanks = Ranks(filtered, x => request.SemanticOnly
+            ? x.Candidate.RerankScore ?? x.Candidate.SemanticScore ?? 0
+            : x.Candidate.SemanticScore ?? 0);
 
         return filtered.GroupBy(x => (x.Candidate.Source.Kind, x.Candidate.Source.Id))
             .Select(group =>

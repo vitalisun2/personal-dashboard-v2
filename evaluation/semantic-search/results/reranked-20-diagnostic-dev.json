@@ -1,0 +1,184 @@
+{
+  "label": "reranked",
+  "startedUtc": "2026-09-27T10:13:45.746549+00:00",
+  "fixtureHash": "d63efc9a246b22dd61a9d7604776ff9edc817e06c6b522a41a570e376d3f6624",
+  "configuration": {
+    "environment": {
+      "V2_SEARCH_RERANK_CANDIDATES": "20",
+      "V2_SEARCH_MIN_SEMANTIC_LEAD": "0.04",
+      "V2_SEARCH_DIVERSIFY_SEMANTIC_SOURCES": "true",
+      "OLLAMA_EMBED_MODEL": "embeddinggemma",
+      "V2_SEARCH_REQUIRE_SEMANTIC_LEAD": "false",
+      "V2_SEARCH_RERANK_TIMEOUT_SECONDS": "45",
+      "V2_SEARCH_RERANK_MIN_SIMILARITY": "0.20",
+      "V2_SEARCH_MAX_SEMANTIC_RESULTS": "5",
+      "OLLAMA_CHAT_MODEL": "gemma4:e4b-it-qat",
+      "V2_SEARCH_PROFILE": "reranked",
+      "V2_SEARCH_RERANK_MIN_RELEVANCE": "0.65",
+      "V2_SEARCH_MIN_SEMANTIC_SIMILARITY": "0.41"
+    },
+    "image": "sha256:ffda0d582b81380fbb8051e341f0101a1e1a114e2ffb00b582c33e16a1446155",
+    "modelDigests": {
+      "embeddinggemma:latest": "85462619ee721b466c5927d109d4cb765861907d5417b9109caebc4e614679f1",
+      "gemma4:e4b-it-qat": "ee665637121887cf3befff38abbb1be4ee117c7db867d97a67e29049ecd7e15f"
+    },
+    "workspaceSearchSourceHashes": {
+      "Api\\ModuleRegistration.cs": "e594b321aaf533106f82c64e031875eaccfa86fa826052da01cf8794114903ee",
+      "Api\\PersonalDashboard.V2.Search.Api.csproj": "9d80796a38dd835761b97822ce0bd1f3b15a8345b6b9dae81d1fb1bfc85cc87f",
+      "Application\\ISearchCandidateStore.cs": "0fdc08633be32ccb2c48ec9fb8a298dc71be3e9325af90d386f4f197fee70273",
+      "Application\\PersonalDashboard.V2.Search.Application.csproj": "5d38588e88b97ce676df2144c83651026af54741e8feec9c9ffbad1ec0106870",
+      "Application\\SearchIndexRebuilder.cs": "992176faf868475379d4e33b4522ff4fbb5f2390c26b82f45e93592ac96e8947",
+      "Application\\SearchService.cs": "1bccba56b10a84a23cb3cde798e217793593e6080bbeb05957f41a7eaa14952c",
+      "Domain\\HybridSearch.cs": "7ce3b3e2ffca9a5ad1ca353d496c21c3290539b3a60c207e06d1d4b972a20d68",
+      "Domain\\PersonalDashboard.V2.Search.Domain.csproj": "92058f239708d6092a558b2507d3d449d829ae754178253ba8ed260fe886645c",
+      "Domain\\SearchCandidate.cs": "e66a40fb2053fd5b0d20d5672c2ad294ca83f83b6c5d8b7d169bdece4d42559d",
+      "Domain\\SearchChunker.cs": "fb850b60afa1474463f517cb754054e47c9677f808a5b0dcadfc82b9cfebcd22",
+      "Domain\\SearchTerms.cs": "598cd7e43573686ac765a0ced93a919977b2ed6b985fd8ea81308cfd1c5290dc",
+      "Domain\\SemanticConfidence.cs": "1f136dbd922da576f48814744380ec98cc09ebd9804943e5c580c9af4ec9bdd0",
+      "Domain\\SentenceSegmenter.cs": "eb3304825c56dee75b8823cddfdd638008f04c87fc05c223737d1678097f05a2",
+      "Infrastructure\\ModuleRegistration.cs": "3ecb00fbd4010ab8682a2b68b57a1ff2c725df30fef5cf957ce14524135cbc4a",
+      "Infrastructure\\OllamaEmbeddingClient.cs": "3554f1817ef66be3d04d115b547e5aa37cc7f934df3721bbaf2e100006f4034f",
+      "Infrastructure\\OllamaSemanticReranker.cs": "456ee6d44296dd668086cb4605e91e85f3e7c2624f99001a835b8dd30e8d937c",
+      "Infrastructure\\PersonalDashboard.V2.Search.Infrastructure.csproj": "d9b756f5eeec759d443b066e7e7c10334c2972f84f643965aec7ee3f4e700795",
+      "Infrastructure\\PostgresSearchCandidateStore.cs": "6854c5e741847f24582e4e2cb30b0483edc58179455e4b73ee9e0236550e1c4f",
+      "Infrastructure\\PostgresSearchIndexer.cs": "3b9d1ca4b84e6defabd7322ca6aaaeb1da8d26da21ea24a4309ef6b914462941",
+      "Infrastructure\\SearchEmbeddingWorker.cs": "e44b93a22dd891f32fbc379d617469ab071a3002abe751a529dc05baa8f1f591",
+      "Infrastructure\\SearchJournalCatchUpWorker.cs": "9b16fd291102ae0014f5606df4d5c6c5d7877a357e0f6b8222b2508d9e5a92b4",
+      "Infrastructure\\SearchSchemaInitializer.cs": "79f2516a743710477902f4935d5db59b0f4170accbc8768d769622a8d72a1301",
+      "Infrastructure\\SemanticCandidateSelector.cs": "e6b0488cbb2e73bed7b2cec85f11b3e2d7334d5249430fbdf14b106465daacfb",
+      "Infrastructure\\SemanticSearchOptions.cs": "fe70b94ed5f7e022deb4564a70613cd6b313eada6d257be0115c0d5d97262f6c",
+      "Infrastructure\\SemanticSentenceSelector.cs": "b6584e70f541c6b04451c736a28a3f7366216c99c9e36c472e2589bfef7f9610",
+      "Tests\\HybridSearchTests.cs": "6c76ea651135b87e1e60ae9255c17bf8554ecbc614c4bf4276a807dc935ca204",
+      "Tests\\PersonalDashboard.V2.Search.Tests.csproj": "ba2ad6d1a9e91343f1891c3b6dcd11e335f7426c522ad3044fb497d5b1d3ffef",
+      "Tests\\SearchCatchUpIntegrationTests.cs": "ad231e1b7f96e393dc9da03c0a00ee78e1a9e35d739db56af646666fbfd32bfe",
+      "Tests\\SemanticProfileTests.cs": "ac8e6d9c9f263b071f8868e71c84e69ac4c86492d39bc0c6c9dd239c06d71778"
+    },
+    "gitHead": "15a02a8b92c5bbf876baf96b1b80ae5666fa9a37",
+    "workingDiffSha256": "4f94d0fe7697fd7391398730f8a3c18392ec8547fe22a8388a074e975df607b8"
+  },
+  "rows": [
+    {
+      "id": "Q01",
+      "split": "dev",
+      "query": "Что проверить, чтобы не нарушить авторские права на звук в ролике для платного продвижения продукта?",
+      "expected": [
+        {
+          "id": "D01",
+          "grade": 2
+        },
+        {
+          "id": "D02",
+          "grade": 2
+        }
+      ],
+      "actual": [
+        "D02",
+        "D01"
+      ],
+      "similarities": [
+        0.5264660402259069,
+        0.5356538902166016
+      ],
+      "elapsedMs": 25229.6,
+      "coverageNote": "Показаны наиболее релевантные результаты. Для проверки полноты выберите «Найти всё». Смысловой поиск оценивает ближайшие векторные совпадения.",
+      "unavailable": false,
+      "fallback": false,
+      "metrics": {
+        "precisionReturned": 1.0,
+        "recallAt5": 1.0,
+        "ndcgAt5": 1.0,
+        "reciprocalRank": 1.0,
+        "noAnswerCorrect": null,
+        "hardNegativeCount": 0,
+        "falsePositiveCount": 0
+      }
+    },
+    {
+      "id": "Q02",
+      "split": "dev",
+      "query": "Почему после смены трека ничего не слышно, хотя воспроизведение будто продолжается?",
+      "expected": [
+        {
+          "id": "D03",
+          "grade": 2
+        }
+      ],
+      "actual": [
+        "D03"
+      ],
+      "similarities": [
+        0.6262679515486742
+      ],
+      "elapsedMs": 25202.1,
+      "coverageNote": "Показаны наиболее релевантные результаты. Для проверки полноты выберите «Найти всё». Смысловой поиск оценивает ближайшие векторные совпадения.",
+      "unavailable": false,
+      "fallback": false,
+      "metrics": {
+        "precisionReturned": 1.0,
+        "recallAt5": 1.0,
+        "ndcgAt5": 1.0,
+        "reciprocalRank": 1.0,
+        "noAnswerCorrect": null,
+        "hardNegativeCount": 0,
+        "falsePositiveCount": 0
+      }
+    },
+    {
+      "id": "Q03",
+      "split": "dev",
+      "query": "Как читать и искать инструкции команды во время полёта, когда подключения совсем нет?",
+      "expected": [
+        {
+          "id": "D04",
+          "grade": 2
+        }
+      ],
+      "actual": [
+        "D04"
+      ],
+      "similarities": [
+        0.5467561213229251
+      ],
+      "elapsedMs": 25160.4,
+      "coverageNote": "Показаны наиболее релевантные результаты. Для проверки полноты выберите «Найти всё». Смысловой поиск оценивает ближайшие векторные совпадения.",
+      "unavailable": false,
+      "fallback": false,
+      "metrics": {
+        "precisionReturned": 1.0,
+        "recallAt5": 1.0,
+        "ndcgAt5": 1.0,
+        "reciprocalRank": 1.0,
+        "noAnswerCorrect": null,
+        "hardNegativeCount": 0,
+        "falsePositiveCount": 0
+      }
+    }
+  ],
+  "embeddingIdentity": "embeddinggemma|retrieval-v1",
+  "summary": {
+    "dev": {
+      "queries": 3,
+      "precisionReturned": 1.0,
+      "recallAt5": 1.0,
+      "ndcgAt5": 1.0,
+      "reciprocalRank": 1.0,
+      "noAnswerCorrect": null,
+      "hardNegatives": 0,
+      "medianMs": 25202.1,
+      "p95Ms": 25229.6,
+      "fallbacks": 0
+    },
+    "all": {
+      "queries": 3,
+      "precisionReturned": 1.0,
+      "recallAt5": 1.0,
+      "ndcgAt5": 1.0,
+      "reciprocalRank": 1.0,
+      "noAnswerCorrect": null,
+      "hardNegatives": 0,
+      "medianMs": 25202.1,
+      "p95Ms": 25229.6,
+      "fallbacks": 0
+    }
+  }
+}

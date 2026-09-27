@@ -18,7 +18,7 @@ public sealed record IndexedSource(
 public sealed record SearchCandidate(
     IndexedSource Source, int ChunkIndex, string Text,
     double? SemanticScore = null, double? FullTextScore = null,
-    TextRange? SemanticSentence = null);
+    TextRange? SemanticSentence = null, double? RerankScore = null);
 
 public sealed record SearchContextFilter(Guid? ConversationId = null, string? Mode = null,
     string? EntityType = null, Guid? EntityId = null, long? EntityVersion = null);
