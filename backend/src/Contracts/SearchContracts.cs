@@ -51,7 +51,8 @@ public enum SearchCoverageMode
 public enum SearchMatchMode
 {
     Hybrid,
-    Semantic
+    Semantic,
+    Lexical
 }
 
 public sealed record SearchRequest(
@@ -77,7 +78,9 @@ public sealed record SearchSourceReference(
     bool IsChatHistory,
     SearchChatContext? ChatContext,
     SearchTextRange? Highlight = null,
-    double? SemanticSimilarity = null);
+    double? SemanticSimilarity = null,
+    SearchMatchKind? MatchKind = null,
+    bool IsShowResult = false);
 
 public sealed record SearchTextRange(int Start, int Length);
 

@@ -65,7 +65,7 @@ public sealed class SemanticProfileTests
             inputs.AddRange(body.RootElement.GetProperty("input").EnumerateArray().Select(value => value.GetString()!));
             return Json(new { embeddings = new[] { new[] { 0f, 1f }, new[] { 1f, 0f } } });
         }));
-        var selector = new SemanticSentenceSelector(new OllamaEmbeddingClient(http, configuration, options),
+        var selector = new SemanticSentenceSelector(new OllamaEmbeddingClient(http, configuration, options), options,
             NullLogger<SemanticSentenceSelector>.Instance);
         var candidate = Candidate(.8, "Первая фраза. Нужный ответ.");
 
@@ -73,7 +73,38 @@ public sealed class SemanticProfileTests
 
         Assert.Equal(["title: none | text: Первая фраза.", "title: none | text: Нужный ответ."], inputs);
         var range = Assert.IsType<TextRange>(Assert.Single(result).SemanticSentence);
+        Assert.True(result[0].SemanticSentenceConfident);
         Assert.Equal("Нужный ответ.", candidate.Text.Substring(range.Start, range.Length));
+    }
+
+    [Theory]
+    [InlineData(.2f, 0f, .8, false)]
+    [InlineData(1f, 1f, .8, false)]
+    [InlineData(.6f, .1f, .8, false)]
+    public async Task WeakOrDistributedSentenceSimilarityKeepsContextWithoutHighlight(float bestX, float secondX,
+        double chunkScore, bool expected)
+    {
+        var configuration = Config("baseline");
+        var options = new SemanticSearchOptions(configuration);
+        var inputs = new List<string[]>();
+        using var http = new HttpClient(new Handler(async (request, _) =>
+        {
+            var body = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+            var text = body.RootElement.GetProperty("input").EnumerateArray().Select(value => value.GetString()!).ToArray();
+            inputs.Add(text);
+            var firstY = MathF.Sqrt(MathF.Max(0, 1 - bestX * bestX));
+            var secondY = MathF.Sqrt(MathF.Max(0, 1 - secondX * secondX));
+            return Json(new { embeddings = new[] { new[] { bestX, firstY }, new[] { secondX, secondY } } });
+        }));
+        var selector = new SemanticSentenceSelector(new OllamaEmbeddingClient(http, configuration, options), options,
+            NullLogger<SemanticSentenceSelector>.Instance);
+        var candidate = Candidate(chunkScore, "Первое предложение. Второе предложение.");
+
+        var result = await selector.AddMatchesAsync([candidate], [1f, 0f], CancellationToken.None);
+
+        Assert.NotNull(result[0].SemanticSentence);
+        Assert.Equal(expected, result[0].SemanticSentenceConfident);
+        Assert.Equal(["Первое предложение.", "Второе предложение."], Assert.Single(inputs));
     }
 
     [Theory]
@@ -232,6 +263,17 @@ public sealed class SemanticProfileTests
     }
 
     [Fact]
+    public async Task LexicalRequestUsesLexicalOnlyCandidateCriteria()
+    {
+        var store = new FixedStore(new SearchCandidateSet([], true, null));
+        var response = await new SearchService(store).SearchAsync(new SearchRequest("exact words", MatchMode: SearchMatchMode.Lexical));
+
+        Assert.Empty(response.Hits);
+        Assert.True(store.LastCriteria!.LexicalOnly);
+        Assert.False(store.LastCriteria.SemanticOnly);
+    }
+
+    [Fact]
     public async Task CallerCancellationIsNotSilentlyConvertedToFallback()
     {
         var configuration = Config("reranked");
@@ -285,7 +327,12 @@ public sealed class SemanticProfileTests
 
     private sealed class FixedStore(SearchCandidateSet candidates) : ISearchCandidateStore
     {
+        public SearchCriteria? LastCriteria { get; private set; }
         public Task<SearchCandidateSet> FindCandidatesAsync(SearchCriteria criteria, SearchCoverageMode mode,
-            CancellationToken cancellationToken = default) => Task.FromResult(candidates);
+            CancellationToken cancellationToken = default)
+        {
+            LastCriteria = criteria;
+            return Task.FromResult(candidates);
+        }
     }
 }

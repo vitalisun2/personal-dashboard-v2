@@ -106,7 +106,9 @@ public static class ChatApiModule
         createdAt = turn.CreatedAtUtc,
         sourceReferences = turn.Sources.Select(source => source.Url ?? source.Path ?? $"{source.Kind}:{source.Id}"),
         sourceDetails = turn.Sources.Select(source => new { kind = source.Kind, title = source.Title, path = source.Path,
-            url = source.Url, snippet = source.Snippet, semanticSimilarity = source.SemanticSimilarity }),
+            url = source.Url, snippet = source.Snippet, highlight = source.Highlight,
+            semanticSimilarity = source.SemanticSimilarity, matchKind = source.MatchKind?.ToString().ToLowerInvariant(),
+            isShowResult = source.IsShowResult }),
         proposalId = proposal?.Id,
         proposalStatus = proposal?.State.ToString(),
         changes = proposal?.Actions.Select(action =>

@@ -108,6 +108,23 @@ function sourceProximity(source: ChatSource): string | null {
   return typeof score === 'number' && Number.isFinite(score)
     ? Math.max(0, Math.min(1, score)).toFixed(2).replace('.', ',') : null
 }
+function validHighlight(source: ChatSource): { start: number; length: number } | null {
+  const range = source.highlight
+  return range && Number.isInteger(range.start) && Number.isInteger(range.length)
+    && range.start >= 0 && range.length > 0 && range.start + range.length <= source.snippet.length
+    ? range : null
+}
+function snippetParts(source: ChatSource): { before: string; match: string; after: string } | null {
+  const range = validHighlight(source)
+  return range ? {
+    before: source.snippet.slice(0, range.start),
+    match: source.snippet.slice(range.start, range.start + range.length),
+    after: source.snippet.slice(range.start + range.length),
+  } : null
+}
+function isShowResults(turn: ChatTurn): boolean {
+  return !!turn.sourceDetails?.some(source => source.isShowResult)
+}
 function onInputKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() }
 }
@@ -127,18 +144,38 @@ watch(input, () => { void nextTick(resizeInput) })
         <template v-for="turn in turns" :key="turn.id">
           <div class="chat-row user"><div class="chat-bubble">{{ turn.userMessage }}</div></div>
           <div class="chat-row agent"><div class="chat-answer" :class="{ 'target-turn': turn.id === targetTurnId }">
-            <div class="chat-bubble">{{ turn.assistantMessage }}</div>
-            <div v-if="turn.sourceDetails?.length" class="source-list">
+            <div v-if="turn.assistantMessage && (!isShowResults(turn) || !turn.sourceDetails?.length)" class="chat-bubble">{{ turn.assistantMessage }}</div>
+            <template v-if="isShowResults(turn)" v-for="group in [
+              { title: 'Прямые совпадения', sources: turn.sourceDetails?.filter(source => source.matchKind === 'lexical') ?? [] },
+              { title: 'По смыслу', sources: turn.sourceDetails?.filter(source => source.matchKind !== 'lexical') ?? [] },
+            ]" :key="group.title">
+              <div v-if="group.sources.length" class="source-group">
+                <h3 class="source-group-title">{{ group.title }}</h3>
+                <div class="source-list">
+                  <article v-for="(source, index) in group.sources" :key="`${source.kind}:${source.title}:${index}`" class="chat-source">
+                    <div class="chat-source-heading"><span>{{ index + 1 }}.</span>
+                      <a v-if="sourceUrl(source.url)" :href="sourceUrl(source.url)">{{ source.title }}</a>
+                      <span v-else>{{ source.title }}</span>
+                    </div>
+                    <p class="chat-source-context"><template v-for="parts in [snippetParts(source)]"><template v-if="parts">{{ parts.before }}<mark>{{ parts.match }}</mark>{{ parts.after }}</template><template v-else>{{ source.snippet }}</template></template></p>
+                    <span v-if="sourcePath(source)" class="chat-source-path">{{ sourcePath(source) }}</span>
+                    <span v-if="sourceProximity(source) !== null" class="chat-source-proximity"
+                      title="Близость по смыслу к запросу; не вероятность правильного ответа">Близость: {{ sourceProximity(source) }}</span>
+                  </article>
+                </div>
+              </div>
+            </template>
+            <div v-if="!isShowResults(turn) && turn.sourceDetails?.length" class="source-list">
               <div v-for="(source, index) in turn.sourceDetails" :key="index" class="chat-source">
-                <a v-if="sourceUrl(source.url)" :href="sourceUrl(source.url)">{{ source.title }}</a>
-                <span v-else>{{ source.title }}</span>
+                <div class="chat-source-heading"><span>{{ index + 1 }}.</span>
+                  <a v-if="sourceUrl(source.url)" :href="sourceUrl(source.url)">{{ source.title }}</a>
+                  <span v-else>{{ source.title }}</span>
+                </div>
                 <span v-if="sourcePath(source)" class="chat-source-path">{{ sourcePath(source) }}</span>
-                <span v-if="sourceProximity(source) !== null" class="chat-source-proximity"
-                  title="Сходство по смыслу с поисковым запросом Gemma, не вероятность правильного ответа">
-                  Близость: {{ sourceProximity(source) }}
-                </span>
+                <span v-if="sourceProximity(source) !== null" class="chat-source-proximity">Близость: {{ sourceProximity(source) }}</span>
               </div>
             </div>
+            <div v-if="isShowResults(turn) && turn.assistantMessage" class="chat-bubble chat-coverage-note">{{ turn.assistantMessage }}</div>
             <div v-if="turn.proposalId && turn.changes?.length" class="proposal-card">
               <div class="proposal-heading">Предложение · {{ turn.proposalStatus === 'Pending' ? 'ожидает подтверждения' : turn.proposalStatus }}</div>
               <p v-for="change in turn.changes" :key="change.id">{{ change.displayName }}: {{ change.preview }}</p>

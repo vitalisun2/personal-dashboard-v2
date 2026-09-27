@@ -4,7 +4,7 @@ using PersonalDashboard.V2.Search.Domain;
 namespace PersonalDashboard.V2.Search.Infrastructure;
 
 /// <summary>Reranks sentences inside each accepted semantic chunk for precise result highlighting.</summary>
-internal sealed class SemanticSentenceSelector(OllamaEmbeddingClient embedder, ILogger<SemanticSentenceSelector> logger)
+internal sealed class SemanticSentenceSelector(OllamaEmbeddingClient embedder, SemanticSearchOptions options, ILogger<SemanticSentenceSelector> logger)
 {
     private const int MaximumSentencesPerSource = 24;
 
@@ -33,13 +33,22 @@ internal sealed class SemanticSentenceSelector(OllamaEmbeddingClient embedder, I
                     Score = Cosine(queryEmbedding, embedding)
                 })
                 .GroupBy(row => (row.Sentence.Candidate.Source.Kind, row.Sentence.Candidate.Source.Id))
-                .Select(group => group.OrderByDescending(row => row.Score).First())
-                .ToDictionary(row => (row.Sentence.Candidate.Source.Kind, row.Sentence.Candidate.Source.Id,
-                    row.Sentence.Candidate.ChunkIndex), row => row.Sentence.Range);
+                .Select(group =>
+                {
+                    var ranked = group.OrderByDescending(row => row.Score).ToArray();
+                    var best = ranked[0];
+                    var lead = ranked.Length > 1 ? best.Score - ranked[1].Score : double.PositiveInfinity;
+                    var chunkScore = best.Sentence.Candidate.SemanticScore;
+                    return (best.Sentence.Candidate.Source.Kind, best.Sentence.Candidate.Source.Id,
+                        best.Sentence.Candidate.ChunkIndex, best.Sentence.Range,
+                        Confident: double.IsFinite(best.Score) && best.Score >= options.MinimumSimilarity
+                            && lead >= options.MinimumLead && (chunkScore is null || best.Score >= chunkScore));
+                })
+                .ToDictionary(row => (row.Kind, row.Id, row.ChunkIndex), row => (row.Range, row.Confident));
 
             return candidates.Select(candidate => matches.TryGetValue(
                     (candidate.Source.Kind, candidate.Source.Id, candidate.ChunkIndex), out var range)
-                    ? candidate with { SemanticSentence = range }
+                    ? candidate with { SemanticSentence = range.Range, SemanticSentenceConfident = range.Confident }
                     : candidate)
                 .ToArray();
         }

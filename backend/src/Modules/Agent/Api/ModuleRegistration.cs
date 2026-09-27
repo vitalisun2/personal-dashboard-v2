@@ -42,7 +42,7 @@ public static class AgentApiModule
         {
             new("system", $"Previous turn context: {FormatScope(turn.Scope)}; requested model {turn.RequestedModel}, actual model {turn.ActualModel}."),
             new("user", turn.UserText),
-            new("assistant", turn.AssistantText)
+            new("assistant", FormatAssistantContext(turn))
         }).ToArray();
         var turnId = Guid.NewGuid();
         AgentTurnResult result;
@@ -72,7 +72,7 @@ public static class AgentApiModule
 
         try
         {
-            var body = $"User: {turn.UserText}\n\nAssistant: {turn.AssistantText}";
+            var body = $"User: {turn.UserText}\n\nAssistant: {FormatAssistantContext(turn)}";
             var chatContext = new SearchChatContext(turn.ConversationId, turn.Id, turn.Scope.Mode, turn.Scope.EntityType, turn.Scope.EntityId, turn.Scope.EntityVersion);
             await search.UpsertAsync(new SearchIndexSource("chat.turn", turn.Id, 1,
                 string.IsNullOrWhiteSpace(conversation.Title) ? ShortTitle(turn.UserText) : conversation.Title!, body, null,
@@ -121,7 +121,9 @@ public static class AgentApiModule
         createdAt = turn.CreatedAtUtc,
         sourceReferences = turn.Sources.Select(source => source.Url ?? source.Path ?? $"{source.Kind}:{source.Id}"),
         sourceDetails = turn.Sources.Select(source => new { kind = source.Kind, title = source.Title, path = source.Path,
-            url = source.Url, snippet = source.Snippet, semanticSimilarity = source.SemanticSimilarity }),
+            url = source.Url, snippet = source.Snippet, highlight = source.Highlight,
+            semanticSimilarity = source.SemanticSimilarity, matchKind = source.MatchKind?.ToString().ToLowerInvariant(),
+            isShowResult = source.IsShowResult }),
         proposalId = proposal?.Id,
         proposalStatus = proposal?.State.ToString(),
         changes = proposal?.Actions.Select(action =>
@@ -134,6 +136,27 @@ public static class AgentApiModule
 
     private static string FormatScope(ChatTurnScope scope) => scope.Mode == "entity"
         ? $"{scope.EntityType}/{scope.EntityId} at version {scope.EntityVersion}" : "general";
+
+    private static string FormatAssistantContext(ChatTurn turn)
+    {
+        var shown = turn.Sources.Where(source => source.IsShowResult).ToArray();
+        if (shown.Length == 0) return turn.AssistantText;
+
+        var sections = new List<string>();
+        foreach (var (kind, heading) in new[]
+                 {
+                     (SearchMatchKind.Lexical, "Прямые совпадения"),
+                     (SearchMatchKind.Semantic, "По смыслу")
+                 })
+        {
+            var sources = shown.Where(source => source.MatchKind == kind).ToArray();
+            if (sources.Length == 0) continue;
+            sections.Add(heading + ":\n" + string.Join("\n", sources.Select((source, index) =>
+                $"{index + 1}. {source.Title}" + (string.IsNullOrWhiteSpace(source.Snippet) ? string.Empty : $" — {source.Snippet}"))));
+        }
+        if (!string.IsNullOrWhiteSpace(turn.AssistantText)) sections.Add(turn.AssistantText);
+        return string.Join("\n\n", sections);
+    }
 
     private static string ShortTitle(string text) => text.Length <= 72 ? text : text[..69] + "...";
 

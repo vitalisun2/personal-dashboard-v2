@@ -53,7 +53,7 @@ public sealed class HybridSearchTests
         var ranked = HybridSearch.Rank(new SearchCriteria("декор", SemanticOnly: true),
         [
             new SearchCandidate(source, 0, text, SemanticScore: .8, FullTextScore: .9,
-                SemanticSentence: new TextRange(sentenceStart, text.Length - sentenceStart))
+                SemanticSentence: new TextRange(sentenceStart, text.Length - sentenceStart), SemanticSentenceConfident: true)
         ]);
 
         Assert.Single(ranked);
@@ -62,6 +62,24 @@ public sealed class HybridSearchTests
         var highlight = Assert.IsType<TextRange>(ranked[0].Highlight);
         Assert.Equal("Декор помогает оформить городскую площадь.",
             ranked[0].Snippet.Substring(highlight.Start, highlight.Length));
+    }
+
+    [Fact]
+    public void SemanticSentenceHighlightRequiresConfidenceAndCompleteSnippetRange()
+    {
+        var source = Source("Длинный документ");
+        var text = "Подходящее " + string.Join(' ', Enumerable.Repeat("предложение", 40)) + ".";
+        var start = 0;
+        var weak = HybridSearch.Rank(new SearchCriteria("смысловой запрос"), [
+            new SearchCandidate(source, 0, text, SemanticScore: .8, SemanticSentence: new TextRange(start, text.Length))
+        ]).Single();
+        Assert.Null(weak.Highlight);
+
+        var confidentButClipped = HybridSearch.Rank(new SearchCriteria("смысловой запрос"), [
+            new SearchCandidate(source, 0, text, SemanticScore: .8, SemanticSentence: new TextRange(start, text.Length), SemanticSentenceConfident: true)
+        ]).Single();
+        Assert.Null(confidentButClipped.Highlight);
+        Assert.True(confidentButClipped.Snippet.Length <= 161);
     }
 
     [Fact]

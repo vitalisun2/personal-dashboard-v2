@@ -20,7 +20,8 @@ public sealed class SearchService(ISearchCandidateStore candidateStore) : ISearc
             request.Kinds, request.Context is null ? null : new SearchContextFilter(
                 request.Context.ConversationId, request.Context.Mode, request.Context.EntityType,
                 request.Context.EntityId, request.Context.EntityVersion),
-            request.UpdatedAfterUtc, request.UpdatedBeforeUtc, request.MatchMode == SearchMatchMode.Semantic);
+            request.UpdatedAfterUtc, request.UpdatedBeforeUtc, request.MatchMode == SearchMatchMode.Semantic,
+            request.MatchMode == SearchMatchMode.Lexical);
 
         var candidateSet = await candidateStore.FindCandidatesAsync(criteria, request.Mode, cancellationToken);
         var ranked = HybridSearch.Rank(criteria, candidateSet.Candidates);

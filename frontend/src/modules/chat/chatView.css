@@ -22,7 +22,12 @@
 .route-note{margin:4px 2px 0;color:#8797a6;font-size:11px}
 .source-list{display:flex;flex-direction:column;gap:10px;margin:6px 2px 0;color:#92aabc;font-size:12px;max-width:100%}
 .source-list a{color:#9fc6f2;text-decoration:underline}
-.chat-source{display:flex;flex-direction:column;gap:3px;overflow-wrap:anywhere}
+.source-group{margin-top:10px}
+.source-group-title{margin:0 2px 5px;color:#b4c9d8;font-size:12px;font-weight:650}
+.chat-source{display:flex;flex-direction:column;gap:3px;overflow-wrap:anywhere;padding:8px 9px;border:1px solid #294252;border-radius:8px;background:#101e28}
+.chat-source-heading{display:flex;gap:6px;align-items:baseline;color:#b4c9d8}
+.chat-source-context{margin:2px 0;color:#d0dce5;line-height:1.5;white-space:pre-wrap}
+.chat-source-context mark{color:inherit;background:#625329;border-radius:2px}
 .chat-source-path,.chat-source-proximity{font-size:11px;color:#92aabc;line-height:1.4}
 .load-older{display:block;min-height:38px;margin:4px auto 12px;padding:0 12px;border:1px solid #2b3c4a;border-radius:11px;background:#18242f;color:#c8d3df;font-size:13px;font-weight:650}
 .load-older:disabled{opacity:.5}

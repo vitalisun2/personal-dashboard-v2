@@ -109,8 +109,9 @@ public static class HybridSearch
         var snippet = prefix + text.Substring(start, length) + (start + length < text.Length ? "…" : string.Empty);
         if (candidate.SemanticSentence is not { } sentence) return (snippet, null);
         var highlightStart = prefix.Length + sentence.Start - start;
-        var highlightLength = Math.Min(sentence.Length, prefix.Length + length - highlightStart);
-        return (snippet, highlightLength > 0 ? new TextRange(highlightStart, highlightLength) : null);
+        var completeSentenceFits = sentence.Start >= start && sentence.Start + sentence.Length <= start + length;
+        return (snippet, candidate.SemanticSentenceConfident && completeSentenceFits
+            ? new TextRange(highlightStart, sentence.Length) : null);
     }
 
 }

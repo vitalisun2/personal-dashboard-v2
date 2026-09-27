@@ -18,14 +18,15 @@ public sealed record IndexedSource(
 public sealed record SearchCandidate(
     IndexedSource Source, int ChunkIndex, string Text,
     double? SemanticScore = null, double? FullTextScore = null,
-    TextRange? SemanticSentence = null, double? RerankScore = null);
+    TextRange? SemanticSentence = null, double? RerankScore = null, bool SemanticSentenceConfident = false);
 
 public sealed record SearchContextFilter(Guid? ConversationId = null, string? Mode = null,
     string? EntityType = null, Guid? EntityId = null, long? EntityVersion = null);
 
 public sealed record SearchCriteria(
     string Query, bool Exhaustive = false, IReadOnlyList<string>? Kinds = null, SearchContextFilter? Context = null,
-    DateTimeOffset? UpdatedAfterUtc = null, DateTimeOffset? UpdatedBeforeUtc = null, bool SemanticOnly = false);
+    DateTimeOffset? UpdatedAfterUtc = null, DateTimeOffset? UpdatedBeforeUtc = null, bool SemanticOnly = false,
+    bool LexicalOnly = false);
 
 public sealed record RankedSource(
     string Kind, Guid Id, long Version, string? Url, string Title, string? Path, DateTimeOffset UpdatedAtUtc,

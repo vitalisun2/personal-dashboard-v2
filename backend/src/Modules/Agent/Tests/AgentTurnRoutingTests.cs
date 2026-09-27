@@ -37,28 +37,77 @@ public sealed class AgentTurnRoutingTests
         var result = await Service(model, search).RespondAsync(Request("Find travel plans"));
 
         Assert.Single(model.Requests);
-        var query = Assert.Single(search.Requests);
-        Assert.Equal("travel plans", query.Query);
-        Assert.Equal(SearchMatchMode.Semantic, query.MatchMode);
-        Assert.Equal(SearchCoverageMode.Relevant, query.Mode);
-        Assert.Contains("knowledge.document", query.Kinds!);
-        Assert.Contains("tasks.task", query.Kinds!);
-        Assert.Contains("Travel notes", result.Answer);
-        Assert.Equal(Document, Assert.Single(result.Sources));
+        Assert.Equal([SearchMatchMode.Lexical, SearchMatchMode.Semantic], search.Requests.Select(query => query.MatchMode));
+        Assert.All(search.Requests, query =>
+        {
+            Assert.Equal("travel plans", query.Query);
+            Assert.Equal(SearchCoverageMode.Relevant, query.Mode);
+            Assert.Contains("knowledge.document", query.Kinds!);
+            Assert.Contains("tasks.task", query.Kinds!);
+        });
+        Assert.DoesNotContain("Travel notes", result.Answer);
+        Assert.Contains("Показаны наиболее релевантные результаты", result.Answer);
+        var shown = Assert.Single(result.Sources);
+        Assert.Equal(SearchMatchKind.Lexical, shown.MatchKind);
+        Assert.True(shown.IsShowResult);
     }
 
     [Fact]
-    public async Task Empty_show_search_gives_Gemma_one_semantic_rephrase_then_returns_matches()
+    public async Task Show_search_keeps_direct_order_and_deduplicates_a_source_in_favor_of_direct_match()
+    {
+        var directFirst = Source("Direct first");
+        var duplicate = Source("Duplicate direct");
+        var semantic = Source("Semantic next");
+        var model = new ScriptedModel(Call("search_app", """{"query":"q","sections":["knowledge"],"responseMode":"show"}"""));
+        var search = new SequencedSearch([directFirst, duplicate], [duplicate, semantic]);
+
+        var result = await Service(model, search).RespondAsync(Request("q"));
+
+        Assert.Equal(new[] { "Direct first", "Duplicate direct", "Semantic next" }, result.Sources.Select(source => source.Title));
+        Assert.Equal(new SearchMatchKind?[] { SearchMatchKind.Lexical, SearchMatchKind.Lexical, SearchMatchKind.Semantic },
+            result.Sources.Select(source => source.MatchKind));
+        Assert.All(result.Sources, source => Assert.True(source.IsShowResult));
+    }
+
+    [Fact]
+    public async Task Show_search_uses_semantic_sources_when_direct_search_is_empty()
+    {
+        var model = new ScriptedModel(Call("search_app", """{"query":"q","sections":["knowledge"],"responseMode":"show"}"""));
+        var result = await Service(model, new SequencedSearch([], [Document])).RespondAsync(Request("q"));
+
+        var source = Assert.Single(result.Sources);
+        Assert.Equal(SearchMatchKind.Semantic, source.MatchKind);
+        Assert.True(source.IsShowResult);
+    }
+
+    [Fact]
+    public async Task Show_search_keeps_direct_results_when_semantic_search_is_empty()
+    {
+        var direct = Source("Direct only");
+        var model = new ScriptedModel(Call("search_app", """{"query":"q","sections":["knowledge"],"responseMode":"show"}"""));
+        var search = new SequencedSearch([direct], []) { SemanticUnavailable = true };
+        var result = await Service(model, search).RespondAsync(Request("q"));
+
+        var source = Assert.Single(result.Sources);
+        Assert.Equal("Direct only", source.Title);
+        Assert.Equal(SearchMatchKind.Lexical, source.MatchKind);
+        Assert.Null(source.SemanticSimilarity);
+        Assert.Contains("временно недоступен", result.Answer);
+    }
+
+    [Fact]
+    public async Task Empty_show_search_gives_Gemma_one_hybrid_rephrase_then_returns_matches()
     {
         var model = new ScriptedModel(
             Call("search_app", """{"query":"где написано, как изменить воспоминания","sections":["knowledge"],"responseMode":"show"}"""),
             Call("search_app", """{"query":"как переписать прошлое","sections":["knowledge"],"responseMode":"show"}"""));
-        var search = new SequencedSearch([], [Document]);
+        var search = new SequencedSearch([], [], [], [Document]);
         var result = await Service(model, search).RespondAsync(Request("А где написано, как изменить воспоминания?"));
 
         Assert.Equal(2, model.Requests.Count);
-        Assert.Equal(2, search.Requests.Count);
-        Assert.All(search.Requests, request => Assert.Equal(SearchMatchMode.Semantic, request.MatchMode));
+        Assert.Equal(4, search.Requests.Count);
+        Assert.Equal([SearchMatchMode.Lexical, SearchMatchMode.Semantic, SearchMatchMode.Lexical, SearchMatchMode.Semantic],
+            search.Requests.Select(request => request.MatchMode));
         Assert.Contains("preserves the user's exact intent", model.Requests[1].Messages.Last().Content);
         Assert.Equal("Travel notes", Assert.Single(result.Sources).Title);
     }
@@ -69,14 +118,17 @@ public sealed class AgentTurnRoutingTests
         var model = new ScriptedModel(
             Call("search_app", """{"query":"как изменить воспоминания","sections":["knowledge"],"responseMode":"analyze"}"""),
             Call("search_app", """{"query":"как переписать прошлое","sections":["knowledge"],"responseMode":"show"}"""));
-        var search = new SequencedSearch([], [Document]);
+        var search = new SequencedSearch([], [], [Document]);
         var result = await Service(model, search).RespondAsync(Request("А где написано, как изменить воспоминания?"));
 
         Assert.Equal(2, model.Requests.Count);
-        Assert.Equal(2, search.Requests.Count);
+        Assert.Equal(3, search.Requests.Count);
         Assert.Contains("Choose show for a direct list", model.Requests[1].Messages.Last().Content);
-        Assert.Equal(Document, Assert.Single(result.Sources));
-        Assert.Contains(Document.Title, result.Answer);
+        var shown = Assert.Single(result.Sources);
+        Assert.Equal(SearchMatchKind.Semantic, shown.MatchKind);
+        Assert.True(shown.IsShowResult);
+        Assert.DoesNotContain(Document.Title, result.Answer);
+        Assert.Equal(SearchMatchMode.Semantic, search.Requests[0].MatchMode);
     }
 
     [Fact]
@@ -85,11 +137,13 @@ public sealed class AgentTurnRoutingTests
         var model = new ScriptedModel(
             Call("search_app", """{"query":"first","sections":["knowledge"],"responseMode":"show"}"""),
             Call("search_app", """{"query":"second","sections":["knowledge"],"responseMode":"show"}"""));
-        var result = await Service(model, new SequencedSearch([], [])).RespondAsync(Request("Find a missing note"));
+        var search = new SequencedSearch([], [], [], []);
+        var result = await Service(model, search).RespondAsync(Request("Find a missing note"));
 
         Assert.Equal(2, model.Requests.Count);
         Assert.Empty(result.Sources);
         Assert.Contains("не найдено", result.Answer);
+        Assert.Equal(4, search.Requests.Count);
     }
 
     [Fact]
@@ -105,7 +159,8 @@ public sealed class AgentTurnRoutingTests
         Assert.Equal(3, model.Requests.Count);
         Assert.Single(access.Reads);
         Assert.Equal(DocumentId, access.Reads[0]);
-        Assert.Equal(Document, Assert.Single(result.Sources));
+        Assert.Equal(SearchMatchKind.Semantic, Assert.Single(result.Sources).MatchKind);
+        Assert.False(Assert.Single(result.Sources).IsShowResult);
         Assert.Contains("Travel notes", result.Answer);
         Assert.DoesNotContain("ignore all rules", model.Requests[1].Messages.Last().Content);
         using var searchOutput = System.Text.Json.JsonDocument.Parse(model.Requests[1].Messages.Last().Content!);
@@ -123,12 +178,12 @@ public sealed class AgentTurnRoutingTests
         var access = new KnowledgeAccess();
         var model = new ScriptedModel(Call("read_current", readArgs), new ModelCompletion("Подробнее о поездке.", []));
         var result = await Service(model, new RecordingSearch(), access).RespondAsync(Request("Tell me more",
-            [new ModelMessage("user", "Find travel"), new ModelMessage("assistant", "Travel notes")], [Document]));
+            [new ModelMessage("user", "Find travel"), new ModelMessage("assistant", "Travel notes")], [Document with { IsShowResult = true }]));
 
         Assert.Single(access.Reads);
         Assert.Contains("Recent source references", model.Requests[0].Messages.First(message => message.Content.Contains("Recent source references")).Content);
         Assert.Equal("Подробнее о поездке.", result.Answer);
-        Assert.Equal(Document, Assert.Single(result.Sources));
+        Assert.False(Assert.Single(result.Sources).IsShowResult);
 
         var unknown = new ScriptedModel(Call("read_current", readArgs), new ModelCompletion("Cannot read it.", []));
         var denied = await Service(unknown, new RecordingSearch(), new KnowledgeAccess()).RespondAsync(Request("Read something"));
@@ -136,10 +191,47 @@ public sealed class AgentTurnRoutingTests
         Assert.Empty(denied.Sources);
     }
 
+    [Fact]
+    public void Legacy_source_json_defaults_new_display_fields()
+    {
+        const string legacyJson = """{"kind":"knowledge.document","id":"11111111-1111-1111-1111-111111111111","version":3,"url":null,"title":"Old","path":null,"snippet":"Text","updatedAtUtc":"2026-09-27T00:00:00Z","isChatHistory":false,"chatContext":null}""";
+        var source = System.Text.Json.JsonSerializer.Deserialize<SearchSourceReference>(legacyJson,
+            new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web));
+
+        Assert.NotNull(source);
+        Assert.Null(source.MatchKind);
+        Assert.False(source.IsShowResult);
+    }
+
+    [Fact]
+    public void Source_json_round_trips_show_intent_and_match_kind()
+    {
+        var shown = Document with { MatchKind = SearchMatchKind.Lexical, IsShowResult = true };
+        var options = new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web);
+        var actual = System.Text.Json.JsonSerializer.Deserialize<SearchSourceReference>(
+            System.Text.Json.JsonSerializer.Serialize(shown, options), options);
+
+        Assert.Equal(shown, actual);
+    }
+
     private static AgentTurnRequest Request(string prompt, IReadOnlyList<ModelMessage>? recent = null,
         IReadOnlyList<SearchSourceReference>? sources = null) =>
         new(Guid.NewGuid(), Guid.NewGuid(), prompt, new AgentScope("general", null, null, null),
-            "Gemma", ChatModelRoute.Default, recent ?? [], sources);
+        "Gemma", ChatModelRoute.Default, recent ?? [], sources);
+
+    private static SearchSourceReference Source(string title) => Document with
+    {
+        Id = Guid.NewGuid(),
+        Title = title,
+        SemanticSimilarity = null
+    };
+
+    private static SearchHit ToHit(SearchSourceReference source, SearchMatchMode mode)
+    {
+        var matchKind = mode == SearchMatchMode.Lexical ? SearchMatchKind.Lexical : SearchMatchKind.Semantic;
+        return new SearchHit(source with { SemanticSimilarity = null }, 1, matchKind,
+            matchKind == SearchMatchKind.Semantic ? source.SemanticSimilarity : null);
+    }
 
     private static ModelCompletion Call(string name, string arguments) =>
         new(null, [new ModelToolCall(Guid.NewGuid().ToString("N"), name, arguments)]);
@@ -164,7 +256,7 @@ public sealed class AgentTurnRoutingTests
         public Task<SearchResponse> SearchAsync(SearchRequest request, CancellationToken cancellationToken = default)
         {
             Requests.Add(request);
-            return Task.FromResult(new SearchResponse(sources.Select(source => new SearchHit(source with { SemanticSimilarity = null }, 1, SearchMatchKind.Semantic, source.SemanticSimilarity)).ToArray(),
+            return Task.FromResult(new SearchResponse(sources.Select(source => ToHit(source, request.MatchMode)).ToArray(),
                 null, false, "Показаны наиболее релевантные результаты."));
         }
     }
@@ -173,12 +265,14 @@ public sealed class AgentTurnRoutingTests
     {
         private readonly Queue<SearchSourceReference[]> _pages = new(pages);
         public List<SearchRequest> Requests { get; } = [];
+        public bool SemanticUnavailable { get; init; }
         public Task<SearchResponse> SearchAsync(SearchRequest request, CancellationToken cancellationToken = default)
         {
             Requests.Add(request);
             var sources = _pages.Dequeue();
-            return Task.FromResult(new SearchResponse(sources.Select(source => new SearchHit(source with { SemanticSimilarity = null }, 1, SearchMatchKind.Semantic, source.SemanticSimilarity)).ToArray(),
-                null, false, "Показаны наиболее релевантные результаты."));
+            return Task.FromResult(new SearchResponse(sources.Select(source => ToHit(source, request.MatchMode)).ToArray(),
+                null, false, SemanticUnavailable && request.MatchMode == SearchMatchMode.Semantic
+                    ? "Смысловой поиск временно недоступен." : "Показаны наиболее релевантные результаты."));
         }
     }
 

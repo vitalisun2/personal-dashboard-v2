@@ -28,7 +28,8 @@ internal sealed class PostgresSearchCandidateStore(
         string? coverageNote = null;
         try
         {
-            queryEmbedding = await embedder.EmbedQueryAsync(criteria.Query, cancellationToken);
+            if (!criteria.LexicalOnly)
+                queryEmbedding = await embedder.EmbedQueryAsync(criteria.Query, cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
@@ -48,7 +49,7 @@ internal sealed class PostgresSearchCandidateStore(
             coverageNote = selection.CoverageNote;
             candidates = (await sentenceSelector.AddMatchesAsync(candidates, queryEmbedding!, cancellationToken)).ToList();
         }
-        var embeddingsPending = await HasPendingEmbeddingsAsync(cancellationToken);
+        var embeddingsPending = !criteria.LexicalOnly && await HasPendingEmbeddingsAsync(cancellationToken);
         if (embeddingsPending)
         {
             var pendingNote = "Смысловой индекс ещё обрабатывает источники; повторите поиск, чтобы проверить полный охват.";
@@ -67,7 +68,7 @@ internal sealed class PostgresSearchCandidateStore(
             coverageNote = coverageNote is null ? relevantNote : $"{coverageNote} {relevantNote}";
         }
 
-        return new SearchCandidateSet(candidates, !retrievalIsBounded && queryEmbedding is not null && !embeddingsPending,
+        return new SearchCandidateSet(candidates, !retrievalIsBounded && (criteria.LexicalOnly || queryEmbedding is not null) && !embeddingsPending,
             coverageNote);
     }
 
@@ -81,12 +82,16 @@ internal sealed class PostgresSearchCandidateStore(
         var semanticMatch = hasEmbedding
             ? "chunk.embedding_model = @embedding_model AND chunk.embedding IS NOT NULL AND 1 - (chunk.embedding <=> CAST(@embedding AS vector)) >= @minimum_similarity"
             : "FALSE";
+        var lexicalPredicate = "chunk.searchable_text ILIKE @pattern ESCAPE '\\' OR chunk.searchable_text ILIKE ANY(CAST(@term_patterns AS text[])) OR chunk.search_vector @@ to_tsquery('simple', @fts_query)";
         var matchPredicate = criteria.SemanticOnly
             ? "chunk.embedding_model = @embedding_model AND chunk.embedding IS NOT NULL"
-            : $"chunk.searchable_text ILIKE @pattern ESCAPE '\\' OR chunk.searchable_text ILIKE ANY(CAST(@term_patterns AS text[])) OR chunk.search_vector @@ to_tsquery('simple', @fts_query) OR ({semanticMatch})";
+            : criteria.LexicalOnly ? lexicalPredicate
+            : $"{lexicalPredicate} OR ({semanticMatch})";
         var ordering = criteria.SemanticOnly
             ? "chunk.embedding <=> CAST(@embedding AS vector) ASC, source.kind, source.id, chunk.chunk_index"
-            : $"(chunk.searchable_text ILIKE @pattern ESCAPE '\\') DESC, {semanticSelect} DESC NULLS LAST, ts_rank_cd(chunk.search_vector, to_tsquery('simple', @fts_query)) DESC, source.kind, source.id, chunk.chunk_index";
+            : criteria.LexicalOnly
+                ? "(chunk.searchable_text ILIKE @pattern ESCAPE '\\') DESC, ts_rank_cd(chunk.search_vector, to_tsquery('simple', @fts_query)) DESC, source.kind, source.id, chunk.chunk_index"
+                : $"(chunk.searchable_text ILIKE @pattern ESCAPE '\\') DESC, {semanticSelect} DESC NULLS LAST, ts_rank_cd(chunk.search_vector, to_tsquery('simple', @fts_query)) DESC, source.kind, source.id, chunk.chunk_index";
         var limit = criteria.SemanticOnly
             ? $"LIMIT {SemanticCandidateLimit}"
             : mode == SearchCoverageMode.Exhaustive ? string.Empty : $"LIMIT {RelevantCandidateLimit}";

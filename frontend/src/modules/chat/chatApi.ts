@@ -44,7 +44,10 @@ export interface ChatSource {
   path?: string | null
   url: string | null
   snippet: string
+  highlight?: { start: number; length: number } | null
   semanticSimilarity?: number | null
+  matchKind?: 'lexical' | 'semantic' | null
+  isShowResult?: boolean
 }
 
 export interface ChatProposedChange {
