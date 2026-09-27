@@ -14,6 +14,7 @@ internal sealed class PostgresSearchCandidateStore(
     PlatformDbContext db,
     OllamaEmbeddingClient embedder,
     SemanticConfidencePolicy semanticConfidence,
+    SemanticSentenceSelector sentenceSelector,
     ILogger<PostgresSearchCandidateStore> logger) : ISearchCandidateStore
 {
     private const int RelevantCandidateLimit = 1000;
@@ -40,7 +41,10 @@ internal sealed class PostgresSearchCandidateStore(
         await db.Database.OpenConnectionAsync(cancellationToken);
         var candidates = await ReadCandidatesAsync(criteria, queryEmbedding, mode, cancellationToken);
         if (criteria.SemanticOnly)
+        {
             candidates = semanticConfidence.Select(candidates).ToList();
+            candidates = (await sentenceSelector.AddMatchesAsync(candidates, queryEmbedding!, cancellationToken)).ToList();
+        }
         var embeddingsPending = await HasPendingEmbeddingsAsync(cancellationToken);
         if (embeddingsPending)
         {

@@ -75,7 +75,10 @@ public sealed record SearchSourceReference(
     string Snippet,
     DateTimeOffset UpdatedAtUtc,
     bool IsChatHistory,
-    SearchChatContext? ChatContext);
+    SearchChatContext? ChatContext,
+    SearchTextRange? Highlight = null);
+
+public sealed record SearchTextRange(int Start, int Length);
 
 public enum SearchMatchKind
 {

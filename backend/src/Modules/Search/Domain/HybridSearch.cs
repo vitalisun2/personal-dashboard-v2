@@ -31,13 +31,14 @@ public static class HybridSearch
                     .OrderByDescending(x => x.Score).ThenBy(x => x.Row.Candidate.ChunkIndex).First();
                 var source = best.Row.Candidate.Source;
                 var hasLexicalMatch = group.Any(x => x.Lexical > 0 || x.Candidate.FullTextScore is > 0);
+                var excerpt = Excerpt(best.Row.Candidate, query);
                 return new RankedSource(source.Kind, source.Id, source.Version, source.Url,
                     source.Title, source.Path, source.UpdatedAtUtc,
                     source.ChatContext,
-                    Excerpt(best.Row.Candidate.Text, query),
+                    excerpt.Text,
                     string.Equals(source.Kind, "chat.turn", StringComparison.OrdinalIgnoreCase),
                     IsSemantic: request.SemanticOnly || !hasLexicalMatch, best.Score,
-                    group.Max(x => x.Candidate.SemanticScore));
+                    group.Max(x => x.Candidate.SemanticScore), excerpt.Highlight);
             })
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.Kind, StringComparer.OrdinalIgnoreCase)
@@ -94,14 +95,20 @@ public static class HybridSearch
             && (filter.EntityVersion is null || filter.EntityVersion == source.EntityVersion);
     }
 
-    private static string Excerpt(string text, string query)
+    private static (string Text, TextRange? Highlight) Excerpt(SearchCandidate candidate, string query)
     {
         const int size = 160;
-        var at = text.IndexOf(query, StringComparison.OrdinalIgnoreCase);
+        var text = candidate.Text;
+        var at = candidate.SemanticSentence?.Start ?? text.IndexOf(query, StringComparison.OrdinalIgnoreCase);
         if (at < 0) at = 0;
         var start = Math.Max(0, at - size / 3);
         var length = Math.Min(text.Length - start, size);
-        return (start > 0 ? "…" : "") + text.Substring(start, length) + (start + length < text.Length ? "…" : "");
+        var prefix = start > 0 ? "…" : string.Empty;
+        var snippet = prefix + text.Substring(start, length) + (start + length < text.Length ? "…" : string.Empty);
+        if (candidate.SemanticSentence is not { } sentence) return (snippet, null);
+        var highlightStart = prefix.Length + sentence.Start - start;
+        var highlightLength = Math.Min(sentence.Length, prefix.Length + length - highlightStart);
+        return (snippet, highlightLength > 0 ? new TextRange(highlightStart, highlightLength) : null);
     }
 
 }

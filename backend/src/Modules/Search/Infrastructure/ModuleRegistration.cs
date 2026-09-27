@@ -16,6 +16,7 @@ public static class SearchInfrastructureModule
             ConfiguredDouble(configuration["V2_SEARCH_MIN_SEMANTIC_SIMILARITY"], 0.25, -1, 1),
             ConfiguredDouble(configuration["V2_SEARCH_MIN_SEMANTIC_LEAD"], 0.04, 0, 2),
             maximumSources: 5));
+        services.AddScoped<SemanticSentenceSelector>();
         services.AddScoped<ISearchIndexer, PostgresSearchIndexer>();
         services.AddScoped<ISearchCandidateStore, PostgresSearchCandidateStore>();
         services.AddScoped<ISearchService, SearchService>();

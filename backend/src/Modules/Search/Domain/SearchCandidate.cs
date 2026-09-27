@@ -1,5 +1,7 @@
 namespace PersonalDashboard.V2.Search.Domain;
 
+public sealed record TextRange(int Start, int Length);
+
 public sealed record IndexedChatContext(Guid ConversationId, Guid TurnId, string Mode,
     string? EntityType, Guid? EntityId, long? EntityVersion);
 
@@ -15,7 +17,8 @@ public sealed record IndexedSource(
 /// <summary>One indexed chunk with scores returned by PostgreSQL full text and vector retrieval.</summary>
 public sealed record SearchCandidate(
     IndexedSource Source, int ChunkIndex, string Text,
-    double? SemanticScore = null, double? FullTextScore = null);
+    double? SemanticScore = null, double? FullTextScore = null,
+    TextRange? SemanticSentence = null);
 
 public sealed record SearchContextFilter(Guid? ConversationId = null, string? Mode = null,
     string? EntityType = null, Guid? EntityId = null, long? EntityVersion = null);
@@ -27,4 +30,4 @@ public sealed record SearchCriteria(
 public sealed record RankedSource(
     string Kind, Guid Id, long Version, string? Url, string Title, string? Path, DateTimeOffset UpdatedAtUtc,
     IndexedChatContext? ChatContext, string Snippet, bool IsChatHistory, bool IsSemantic, double Score,
-    double? SemanticSimilarity);
+    double? SemanticSimilarity, TextRange? Highlight);

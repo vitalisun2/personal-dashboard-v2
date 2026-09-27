@@ -33,6 +33,7 @@ export type SearchSourceReference = {
   updatedAtUtc: string
   isChatHistory: boolean
   chatContext?: SearchChatContext | null
+  highlight?: { start: number; length: number } | null
 }
 
 export type SearchMatchKind = 'lexical' | 'semantic'

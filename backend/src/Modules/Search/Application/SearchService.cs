@@ -48,7 +48,8 @@ public sealed class SearchService(ISearchCandidateStore candidateStore) : ISearc
             ranked.Path, ranked.Snippet, ranked.UpdatedAtUtc, ranked.IsChatHistory,
             ranked.ChatContext is null ? null : new SearchChatContext(ranked.ChatContext.ConversationId,
                 ranked.ChatContext.TurnId, ranked.ChatContext.Mode, ranked.ChatContext.EntityType,
-                ranked.ChatContext.EntityId, ranked.ChatContext.EntityVersion)), ranked.Score,
+                ranked.ChatContext.EntityId, ranked.ChatContext.EntityVersion),
+            ranked.Highlight is null ? null : new SearchTextRange(ranked.Highlight.Start, ranked.Highlight.Length)), ranked.Score,
         ranked.IsSemantic ? SearchMatchKind.Semantic : SearchMatchKind.Lexical,
         ranked.SemanticSimilarity);
 

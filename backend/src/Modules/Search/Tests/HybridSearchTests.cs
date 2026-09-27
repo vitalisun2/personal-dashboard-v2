@@ -48,14 +48,32 @@ public sealed class HybridSearchTests
     public void SemanticModeRanksByVectorAndMarksEveryResultSemantic()
     {
         var source = Source("Декор площади");
+        const string text = "Первое предложение. Декор помогает оформить городскую площадь.";
+        var sentenceStart = text.IndexOf("Декор", StringComparison.Ordinal);
         var ranked = HybridSearch.Rank(new SearchCriteria("декор", SemanticOnly: true),
         [
-            new SearchCandidate(source, 0, "Декор площади", SemanticScore: .8, FullTextScore: .9)
+            new SearchCandidate(source, 0, text, SemanticScore: .8, FullTextScore: .9,
+                SemanticSentence: new TextRange(sentenceStart, text.Length - sentenceStart))
         ]);
 
         Assert.Single(ranked);
         Assert.True(ranked[0].IsSemantic);
         Assert.Equal(.8, ranked[0].SemanticSimilarity);
+        var highlight = Assert.IsType<TextRange>(ranked[0].Highlight);
+        Assert.Equal("Декор помогает оформить городскую площадь.",
+            ranked[0].Snippet.Substring(highlight.Start, highlight.Length));
+    }
+
+    [Fact]
+    public void SentenceSegmenterKeepsRussianSentencesAndMarkdownItemsSeparate()
+    {
+        const string text = "Первое предложение. Второе предложение!\n- Отдельный пункт без точки";
+
+        var sentences = SentenceSegmenter.Split(text)
+            .Select(range => text.Substring(range.Start, range.Length))
+            .ToArray();
+
+        Assert.Equal(["Первое предложение.", "Второе предложение!", "Отдельный пункт без точки"], sentences);
     }
 
     [Fact]

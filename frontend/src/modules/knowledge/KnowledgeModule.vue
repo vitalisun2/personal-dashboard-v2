@@ -3,6 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { requestSync, subscribeSyncStatus, type SyncStatus } from '../../offline/runtime'
 import SearchHighlight from '../../shared/SearchHighlight.vue'
+import TextRangeHighlight from '../../shared/TextRangeHighlight.vue'
 import { search as searchIndexed, type SearchHit } from '../search/searchApi'
 import {
   cacheServerKnowledge, getCachedKnowledge, getKnowledgeConflicts, getLocallyDeletedKnowledgeIds,
@@ -467,7 +468,7 @@ function clearSearch() {
               <div class="result-title">{{ result.source.title }}</div>
               <span class="semantic-score" :aria-label="`Смысловая близость ${semanticPercent(result)} процентов`">{{ semanticPercent(result) }}%</span>
               <div class="result-path">{{ result.source.path }}</div>
-              <div class="result-snippet">«{{ result.source.snippet }}»</div>
+              <div class="result-snippet">«<TextRangeHighlight :text="result.source.snippet" :start="result.source.highlight?.start" :length="result.source.highlight?.length" />»</div>
             </button>
           </section>
           <p v-if="semanticSearchLoading && results.length" class="empty" role="status">Ищем похожие по смыслу…</p>
