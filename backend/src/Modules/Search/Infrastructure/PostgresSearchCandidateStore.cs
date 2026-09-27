@@ -13,11 +13,11 @@ namespace PersonalDashboard.V2.Search.Infrastructure;
 internal sealed class PostgresSearchCandidateStore(
     PlatformDbContext db,
     OllamaEmbeddingClient embedder,
-    IConfiguration configuration,
+    SemanticConfidencePolicy semanticConfidence,
     ILogger<PostgresSearchCandidateStore> logger) : ISearchCandidateStore
 {
     private const int RelevantCandidateLimit = 1000;
-    private readonly double _minimumSimilarity = ParseSimilarity(configuration["V2_SEARCH_MIN_SEMANTIC_SIMILARITY"]);
+    private const int SemanticCandidateLimit = 50;
 
     public async Task<SearchCandidateSet> FindCandidatesAsync(SearchCriteria criteria, SearchCoverageMode mode,
         CancellationToken cancellationToken = default)
@@ -39,6 +39,8 @@ internal sealed class PostgresSearchCandidateStore(
 
         await db.Database.OpenConnectionAsync(cancellationToken);
         var candidates = await ReadCandidatesAsync(criteria, queryEmbedding, mode, cancellationToken);
+        if (criteria.SemanticOnly)
+            candidates = semanticConfidence.Select(candidates).ToList();
         var embeddingsPending = await HasPendingEmbeddingsAsync(cancellationToken);
         if (embeddingsPending)
         {
@@ -46,8 +48,13 @@ internal sealed class PostgresSearchCandidateStore(
             coverageNote = coverageNote is null ? pendingNote : $"{coverageNote} {pendingNote}";
         }
 
-        var retrievalIsBounded = mode == SearchCoverageMode.Relevant;
-        if (retrievalIsBounded)
+        var retrievalIsBounded = criteria.SemanticOnly || mode == SearchCoverageMode.Relevant;
+        if (criteria.SemanticOnly)
+        {
+            const string semanticNote = "Смысловой поиск оценивает ближайшие векторные совпадения.";
+            coverageNote = coverageNote is null ? semanticNote : $"{coverageNote} {semanticNote}";
+        }
+        else if (retrievalIsBounded)
         {
             const string relevantNote = "Релевантный режим ограничивает выборку 1000 фрагментами; выберите «Найти всё» для полного лексического охвата.";
             coverageNote = coverageNote is null ? relevantNote : $"{coverageNote} {relevantNote}";
@@ -68,12 +75,14 @@ internal sealed class PostgresSearchCandidateStore(
             ? "chunk.embedding_model = @embedding_model AND chunk.embedding IS NOT NULL AND 1 - (chunk.embedding <=> CAST(@embedding AS vector)) >= @minimum_similarity"
             : "FALSE";
         var matchPredicate = criteria.SemanticOnly
-            ? semanticMatch
+            ? "chunk.embedding_model = @embedding_model AND chunk.embedding IS NOT NULL"
             : $"chunk.searchable_text ILIKE @pattern ESCAPE '\\' OR chunk.searchable_text ILIKE ANY(CAST(@term_patterns AS text[])) OR chunk.search_vector @@ to_tsquery('simple', @fts_query) OR ({semanticMatch})";
         var ordering = criteria.SemanticOnly
-            ? $"{semanticSelect} DESC NULLS LAST, source.kind, source.id, chunk.chunk_index"
+            ? "chunk.embedding <=> CAST(@embedding AS vector) ASC, source.kind, source.id, chunk.chunk_index"
             : $"(chunk.searchable_text ILIKE @pattern ESCAPE '\\') DESC, {semanticSelect} DESC NULLS LAST, ts_rank_cd(chunk.search_vector, to_tsquery('simple', @fts_query)) DESC, source.kind, source.id, chunk.chunk_index";
-        var limit = mode == SearchCoverageMode.Exhaustive ? string.Empty : $"LIMIT {RelevantCandidateLimit}";
+        var limit = criteria.SemanticOnly
+            ? $"LIMIT {SemanticCandidateLimit}"
+            : mode == SearchCoverageMode.Exhaustive ? string.Empty : $"LIMIT {RelevantCandidateLimit}";
         var terms = SearchTerms.Significant(criteria.Query);
         var ftsQuery = string.Join(" | ", terms);
         var termPatterns = terms.Select(term => LiteralPattern(term)).ToArray();
@@ -118,7 +127,7 @@ internal sealed class PostgresSearchCandidateStore(
         {
             Add(command, "embedding", OllamaEmbeddingClient.ToVectorLiteral(queryEmbedding!));
             Add(command, "embedding_model", embedder.ModelName);
-            Add(command, "minimum_similarity", _minimumSimilarity);
+            if (!criteria.SemanticOnly) Add(command, "minimum_similarity", semanticConfidence.MinimumSimilarity);
         }
 
         var candidates = new List<SearchCandidate>();
@@ -166,12 +175,6 @@ internal sealed class PostgresSearchCandidateStore(
         DateTime dateTime => new DateTimeOffset(DateTime.SpecifyKind(dateTime, DateTimeKind.Utc)),
         _ => throw new InvalidCastException("Unexpected UTC timestamp type from PostgreSQL.")
     };
-
-    private static double ParseSimilarity(string? configured)
-    {
-        if (!double.TryParse(configured, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)) return 0.55;
-        return Math.Clamp(value, -1, 1);
-    }
 
     private static void Add(DbCommand command, string name, object? value)
     {

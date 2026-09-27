@@ -47,13 +47,29 @@ internal sealed class SearchSchemaInitializer(IServiceScopeFactory scopeFactory,
             chunk_text text NOT NULL,
             searchable_text text NOT NULL,
             search_vector tsvector GENERATED ALWAYS AS (to_tsvector('simple'::regconfig, searchable_text)) STORED,
-            embedding vector NULL,
+            embedding vector(768) NULL,
             embedding_model text NULL,
             PRIMARY KEY (kind, source_id, chunk_index),
             FOREIGN KEY (kind, source_id) REFERENCES search_sources(kind, id) ON DELETE CASCADE
         );
 
         ALTER TABLE search_chunks ADD COLUMN IF NOT EXISTS embedding_model text NULL;
+
+        DO $migration$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                  FROM pg_attribute attribute
+                  JOIN pg_class relation ON relation.oid = attribute.attrelid
+                 WHERE relation.relname = 'search_chunks'
+                   AND relation.relnamespace = 'public'::regnamespace
+                   AND attribute.attname = 'embedding'
+                   AND attribute.attnum > 0
+                   AND NOT attribute.attisdropped
+                   AND format_type(attribute.atttypid, attribute.atttypmod) = 'vector') THEN
+                ALTER TABLE search_chunks ALTER COLUMN embedding TYPE vector(768) USING embedding::vector(768);
+            END IF;
+        END $migration$;
 
         CREATE INDEX IF NOT EXISTS ix_search_sources_active_updated
             ON search_sources (updated_at_utc DESC) WHERE is_deleted = false;
@@ -66,6 +82,8 @@ internal sealed class SearchSchemaInitializer(IServiceScopeFactory scopeFactory,
             ON search_chunks USING gin (searchable_text gin_trgm_ops);
         CREATE INDEX IF NOT EXISTS ix_search_chunks_pending_embeddings
             ON search_chunks (kind, source_id, chunk_index) WHERE embedding IS NULL;
+        CREATE INDEX IF NOT EXISTS ix_search_chunks_embedding_cosine
+            ON search_chunks USING hnsw (embedding vector_cosine_ops) WHERE embedding IS NOT NULL;
         """;
 
     public async Task StartAsync(CancellationToken cancellationToken)

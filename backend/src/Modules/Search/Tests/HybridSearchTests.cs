@@ -57,6 +57,42 @@ public sealed class HybridSearchTests
         Assert.True(ranked[0].IsSemantic);
     }
 
+    [Fact]
+    public void SemanticConfidenceAcceptsClearLeaderAndOtherSourcesAboveFloor()
+    {
+        var leader = Source("Архитектурная база знаний");
+        var related = Source("Связанный документ");
+        var weak = Source("Случайный документ");
+
+        var selected = new SemanticConfidencePolicy(.25, .04, 5).Select([
+            new SearchCandidate(leader, 0, "Главный фрагмент", SemanticScore: .316),
+            new SearchCandidate(leader, 1, "Другой фрагмент", SemanticScore: .290),
+            new SearchCandidate(related, 0, "Связанный фрагмент", SemanticScore: .260),
+            new SearchCandidate(weak, 0, "Слабый фрагмент", SemanticScore: .240)
+        ]);
+
+        Assert.Equal(3, selected.Count);
+        Assert.DoesNotContain(selected, candidate => candidate.Source.Id == weak.Id);
+    }
+
+    [Fact]
+    public void SemanticConfidenceRejectsWeakOrAmbiguousLeader()
+    {
+        var first = Source("Первый");
+        var second = Source("Второй");
+
+        var policy = new SemanticConfidencePolicy(.25, .04, 5);
+        Assert.Empty(policy.Select([
+            new SearchCandidate(first, 0, "Первый", SemanticScore: .233),
+            new SearchCandidate(second, 0, "Второй", SemanticScore: .231)
+        ]));
+
+        Assert.Empty(policy.Select([
+            new SearchCandidate(first, 0, "Первый", SemanticScore: .310),
+            new SearchCandidate(second, 0, "Второй", SemanticScore: .290)
+        ]));
+    }
+
     private static IndexedSource Source(string title)
     {
         var id = Guid.NewGuid();
