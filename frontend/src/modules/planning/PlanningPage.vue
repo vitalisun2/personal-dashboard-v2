@@ -31,6 +31,7 @@ const milestone = computed(() => project.value?.milestones.find(item => item.id 
 const feature = computed(() => milestone.value?.features.find(item => item.id === featureId.value) || null)
 const depth = computed(() => feature.value ? 3 : milestone.value ? 2 : project.value ? 1 : 0)
 const linkedTasks = computed(() => state.tasks.filter(item => item.featureId === featureId.value))
+const visibleTasks = computed(() => linkedTasks.value.filter(item => workLower(item.workStatus) !== 'done'))
 const taskProgress = computed(() => featureTaskProgress(linkedTasks.value))
 const plannedFeatureTasks = computed(() => linkedTasks.value.filter(item => taskState(item) === 'planned').sort((a, b) => a.position - b.position))
 const detailTask = computed(() => state.detailTaskId ? state.tasks.find(item => item.id === state.detailTaskId) || null : null)
@@ -771,16 +772,16 @@ onBeforeUnmount(onUnmountedCleanup)
             </div>
           </div>
           <div class="planning-list-head planning-feature-list-head"><span>Задачи</span><div class="planning-list-actions"><button class="order-mode-toggle planning-order-toggle" type="button" :aria-pressed="state.orderMode ? 'true' : 'false'" :aria-label="state.orderMode ? 'Готово' : 'Включить сортировку'" @click="toggleOrderMode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h11M19 6v12m-2.5-2.5L19 18l2.5-2.5" /></svg></button><button type="button" aria-label="Добавить задачу" @click="startCreate('task')">＋</button></div></div>
-          <div v-if="!linkedTasks.length" class="planning-empty">У этой фичи пока нет задач.</div>
+          <div v-if="!visibleTasks.length" class="planning-empty">{{ linkedTasks.length ? 'Нет невыполненных задач.' : 'У этой фичи пока нет задач.' }}</div>
           <div class="planning-feature-tasks">
             <template v-if="state.orderMode">
-              <div v-for="item in linkedTasks" :key="'order-' + item.id" class="planning-feature-task planning-order-row" :data-order-id="item.id">
+              <div v-for="item in visibleTasks" :key="'order-' + item.id" class="planning-feature-task planning-order-row" :data-order-id="item.id">
                 <span class="planning-feature-task-title">{{ item.title }}</span>
                 <ReorderHandle v-if="taskState(item) === 'planned'" class="planning-order-handle" :label="`Перетащить задачу ${item.title}`" @pointerdown="orderDragStart($event, item.id)" />
               </div>
             </template>
             <template v-else>
-              <div v-for="task in linkedTasks" :key="task.id" class="planning-feature-task planning-context-row" :class="{ 'context-active': isContextActive('task', task.id) }" @pointerdown="rowPointerDown($event, 'task', task.id)" @pointermove="rowPointerMove" @pointerup="rowPointerUp" @pointercancel="rowPointerUp" @contextmenu.prevent="rowContextMenu($event, 'task', task.id)">
+              <div v-for="task in visibleTasks" :key="task.id" class="planning-feature-task planning-context-row" :class="{ 'context-active': isContextActive('task', task.id) }" @pointerdown="rowPointerDown($event, 'task', task.id)" @pointermove="rowPointerMove" @pointerup="rowPointerUp" @pointercancel="rowPointerUp" @contextmenu.prevent="rowContextMenu($event, 'task', task.id)">
                 <button class="planning-feature-task-title" type="button" @click="openDetailTask(task)">{{ task.title }}</button>
                 <button v-if="taskState(task) === 'planned'" class="planning-send-backlog" type="button" @click="moveTask(task, 'backlog')">Backlog</button>
                 <button v-else class="planning-task-state" :class="taskMeta(task)?.kind" type="button" @click="openLinkedTask(task)">{{ taskMeta(task)?.label }}</button>

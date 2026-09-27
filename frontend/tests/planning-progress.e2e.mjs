@@ -62,8 +62,21 @@ try {
   await visible('Выполнено 2 из 8 задач');
   assert.equal(await page.locator('.planning-task-count').count(), 0);
   assert.equal(await page.getByRole('button', { name: 'Завершить фичу', exact: true }).count(), 0);
-  assert.equal(await page.getByRole('button', { name: 'Готово · в архиве', exact: true }).count(), 2);
+  assert.equal(await page.getByRole('button', { name: 'Готово · в архиве', exact: true }).count(), 0);
+  assert.equal(await page.locator('.planning-feature-task').count(), 6);
+  await page.getByRole('button', { name: 'Включить сортировку', exact: true }).click();
+  assert.equal(await page.locator('.planning-order-row').count(), 6);
+  assert.equal(await page.getByText('Фон 1', { exact: true }).count(), 0);
+  assert.equal(await page.getByText('Фон 2', { exact: true }).count(), 0);
+  await page.getByRole('button', { name: 'Готово', exact: true }).click();
   await screenshot('01-partial');
+
+  // Completion hides rows regardless of their location or API status representation.
+  tasks.forEach((task, i) => { task.location = ['planned', 'backlog', 'today', 'archived'][i % 4]; task.workStatus = ['Done', 'completed', 2, '2'][i % 4]; });
+  await page.reload();
+  await visible('Выполнено 8 из 8 задач');
+  await visible('Нет невыполненных задач.');
+  assert.equal(await page.locator('.planning-feature-task').count(), 0);
 
   tasks.forEach(task => { task.location = 'archived'; task.workStatus = 'done'; });
   tasks.push({ ...tasks[0], id: 'cancelled', title: 'Отменённый фон', workStatus: 'new' });
