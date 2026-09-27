@@ -54,6 +54,8 @@ public static class AgentApiModule
         var scope = new AgentScope(request.Scope?.Mode ?? "general", request.Scope?.EntityType, request.Scope?.EntityId,
             request.Scope?.EntityVersion, conversation.Area);
         if (scope.Mode is not ("general" or "entity")) return Results.BadRequest(new { error = "Scope mode must be general or entity." });
+        if (scope.Mode == "entity" && (scope.EntityId is null || scope.EntityId == Guid.Empty))
+            return Results.BadRequest(new { error = "A focused entity ID is required." });
         if (scope.Mode == "entity" && (scope.EntityType is null || !ScopeKindAllowed(scope.EntityType, conversation.Area)))
             return Results.BadRequest(new { error = "The focused entity does not belong to this chat area." });
         if (scope.Mode == "entity" && conversation.Area == "planning" && scope.EntityType == "tasks.task")
