@@ -329,9 +329,10 @@ async function confirmDelete() {
 
 async function retryDeleteConflict(conflict: SyncConflict<KnowledgeNode>) {
   try {
-    await retryKnowledgeDeleteConflict(conflict)
+    error.value = ''
+    const queued = await retryKnowledgeDeleteConflict(conflict)
     await refreshSyncState()
-    requestSync()
+    if (queued) requestSync()
   } catch (err) { setError(err) }
 }
 
