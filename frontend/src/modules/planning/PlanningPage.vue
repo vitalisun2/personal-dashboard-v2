@@ -5,7 +5,7 @@ import { getOfflineStore, saveOfflineMutation } from '../../offline/runtime'
 import type { OfflineEntity, SyncOperation } from '../../offline/types'
 import ReorderHandle from '../../shared/ReorderHandle.vue'
 import { startReorderDrag } from '../../shared/reorderDrag'
-import { epicProgress, projectProgress } from './progress'
+import { epicProgress, projectProgress, featureTaskProgress } from './progress'
 
 type Feature = { id: string; title: string; description: string; position: number; version: number; status: string | number }
 type Milestone = { id: string; title: string; description: string; position: number; version: number; progressPercent: number; features: Feature[] }
@@ -17,7 +17,7 @@ const api = '/api/v2/planning', taskApi = '/api/v2/tasks'
 const route = useRoute(), router = useRouter()
 const state = reactive({
   projects: [] as Project[], tasks: [] as Task[], busy: false, error: '', showArchived: false,
-  orderMode: false, pickerOpen: false,
+  orderMode: false, pickerOpen: false, savingFeatureStatus: false,
   createType: '', editType: '', editId: '', title: '', description: '',
   detailTaskId: '', editingKind: '' as '' | 'title' | 'description', editDraft: '',
   menuOpen: false, menuKind: '', menuId: '', menuX: 0, menuY: 0, menuPoint: null as { x: number; y: number } | null,
@@ -31,6 +31,7 @@ const project = computed(() => state.projects.find(item => item.id === projectId
 const milestone = computed(() => project.value?.milestones.find(item => item.id === milestoneId.value) || null)
 const feature = computed(() => milestone.value?.features.find(item => item.id === featureId.value) || null)
 const depth = computed(() => feature.value ? 3 : milestone.value ? 2 : project.value ? 1 : 0)
+const taskProgress = computed(() => featureTaskProgress(linkedTasks.value))
 const linkedTasks = computed(() => state.tasks.filter(item => item.featureId === featureId.value))
 const plannedFeatureTasks = computed(() => linkedTasks.value.filter(item => taskState(item) === 'planned').sort((a, b) => a.position - b.position))
 const detailTask = computed(() => state.detailTaskId ? state.tasks.find(item => item.id === state.detailTaskId) || null : null)
@@ -109,7 +110,7 @@ function taskMeta(task: Task): { label: string; kind: string } | null {
   const st = taskState(task)
   if (st === 'planned') return null
   const ws = workLower(task.workStatus)
-  if (st === 'today' && ws === 'done') return { label: 'Готово', kind: 'completed' }
+  if (ws === 'done') return { label: st === 'archived' ? 'Готово · в архиве' : 'Готово', kind: 'completed' }
   if (st === 'today' && ws === 'inprogress') return { label: 'В работе', kind: 'in_progress' }
   if (st === 'today') return { label: 'Сегодня', kind: 'today' }
   if (st === 'archived') return { label: 'В архиве', kind: 'archived' }
@@ -174,8 +175,7 @@ async function refresh() {
           await cacheRows('planning.milestone', p.milestones)
           for (const m of p.milestones) await cacheRows('planning.feature', m.features)
         }
-        const lists = await Promise.all(['Planned', 'Backlog', 'Today'].map(location => request<Task[]>(taskApi, `?location=${location}`)))
-        state.tasks = lists.flat(); await cacheRows('tasks.task', state.tasks)
+        state.tasks = await request<Task[]>(taskApi, ''); await cacheRows('tasks.task', state.tasks)
       const store = await getOfflineStore(), pending = await store.listPendingOperations(), localProjects = await cachedRows<Project>('planning.project'), localTasks = await cachedRows<Task>('tasks.task')
       const localProjectById = new Map(localProjects.map(item => [item.id, item])), affectedProjects = new Set<string>(), deletedProjects = new Set<string>(), affectedTasks = new Set<string>()
       for (const op of pending) {
@@ -207,6 +207,35 @@ function openMilestone(id: string) { if (Date.now() >= suppressClickUntil) goMil
 function openFeature(id: string) { if (Date.now() >= suppressClickUntil) goFeature(id) }
 function openDetailTask(task: Task) { if (Date.now() >= suppressClickUntil) state.detailTaskId = task.id }
 function openLinkedTask(task: Task) { if (Date.now() >= suppressClickUntil) void router.push(`/tasks/${task.id}`) }
+async function setFeatureStatus(status: 'done' | 'active') {
+  const p = project.value, m = milestone.value, f = feature.value
+  if (!p || !m || !f || state.savingFeatureStatus || (status === 'done' && !taskProgress.value.canComplete)) return
+  state.savingFeatureStatus = true
+  state.error = ''
+  try {
+    const updated = await request<Project>(api, `/projects/${p.id}/milestones/${m.id}/features/${f.id}/status`, {
+      method: 'PUT', body: JSON.stringify({ expectedVersion: f.version, status }),
+    })
+    state.projects = state.projects.map(item => item.id === updated.id ? updated : item)
+    await cacheRows('planning.project', state.projects)
+    for (const epic of updated.milestones) {
+      await cacheRows('planning.milestone', [epic])
+      await cacheRows('planning.feature', epic.features)
+    }
+  } catch (error) {
+    if (error instanceof TypeError) {
+      try {
+        const local = { ...f, status, version: f.version + 1 }
+        await queuePlanning('planning.feature', f.id, f.version, { operation: 'setFeatureStatus', kind: 'feature', id: f.id, projectId: p.id, milestoneId: m.id, featureStatus: status }, false, local)
+        m.features = m.features.map(item => item.id === f.id ? local : item)
+        m.version += 1; p.version += 1
+        await cacheRows('planning.project', state.projects, true)
+        state.error = 'Нет сети. Статус сохранён и будет синхронизирован позже.'
+      } catch (saveError) { state.error = (saveError as Error).message }
+    } else state.error = (error as Error).message
+  } finally { state.savingFeatureStatus = false }
+}
+
 
 function startCreate(type: string) { state.createType = type; state.editType = ''; state.editId = ''; state.title = ''; state.description = ''; state.pickerOpen = false; closeContextMenu(); void nextTick(() => nameInputRef.value?.focus({ preventScroll: true })) }
 function startEdit(type: string, item: Project | Milestone | Feature | Task) { state.editType = type; state.editId = item.id; state.createType = ''; state.title = item.title; state.description = item.description; state.pickerOpen = false; closeContextMenu(); void nextTick(() => nameInputRef.value?.focus({ preventScroll: true })) }
@@ -722,7 +751,15 @@ onBeforeUnmount(onUnmountedCleanup)
             <div class="planning-kicker">{{ project.title }} · {{ milestone.title }}</div>
             <div class="planning-head-main">
               <button class="planning-head-title" type="button" @click="startEdit('feature', feature)">{{ feature.title }}</button>
-              <span class="planning-task-count" :aria-label="`${linkedTasks.length} задач`">{{ linkedTasks.length }}</span>
+            </div>
+            <div class="planning-feature-progress" aria-live="polite">
+              <span>Выполнено {{ taskProgress.completed }} из {{ taskProgress.total }} задач</span>
+              <span v-if="taskProgress.excluded" class="planning-feature-excluded">В архиве без выполнения: {{ taskProgress.excluded }} — не учитываются</span>
+              <template v-if="statusName(feature.status) === 'done'">
+                <span class="planning-feature-completed">✓ Фича завершена</span>
+                <button class="planning-feature-reopen" type="button" :disabled="state.savingFeatureStatus" @click="setFeatureStatus('active')">Вернуть в работу</button>
+              </template>
+              <button v-else-if="taskProgress.canComplete" class="planning-feature-complete" type="button" :disabled="state.savingFeatureStatus || state.busy" @click="setFeatureStatus('done')">{{ state.savingFeatureStatus ? 'Сохраняем…' : 'Завершить фичу' }}</button>
             </div>
           </div>
           <div class="planning-list-head planning-feature-list-head"><span>Задачи</span><div class="planning-list-actions"><button class="order-mode-toggle planning-order-toggle" type="button" :aria-pressed="state.orderMode ? 'true' : 'false'" :aria-label="state.orderMode ? 'Готово' : 'Включить сортировку'" @click="toggleOrderMode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h11M19 6v12m-2.5-2.5L19 18l2.5-2.5" /></svg></button><button type="button" aria-label="Добавить задачу" @click="startCreate('task')">＋</button></div></div>

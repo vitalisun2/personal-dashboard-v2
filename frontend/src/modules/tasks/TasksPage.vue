@@ -33,6 +33,7 @@ const state = reactive({
 })
 const location = computed(() => state.archive ? 'Archived' : state.bucket === 'Сегодня' ? 'Today' : 'Backlog')
 const filtered = computed(() => state.tasks.filter(task => !state.detail || task.id === state.detail.id).filter(task => state.filter === 'all' || statusName(task.workStatus) === state.filter))
+const archiveTasks = computed(() => state.tasks.filter(task => state.filter === 'all' || (state.filter === 'Done' ? statusName(task.workStatus) === 'Done' : statusName(task.workStatus) !== 'Done')))
 const linkedGroups = computed(() => {
   const ids = [...new Set(filtered.value.filter(task => task.projectId).map(task => task.projectId!))]
   return ids.map(projectId => ({ projectId, title: state.projects.find(x => x.id === projectId)?.title || 'Проект', tasks: filtered.value.filter(task => task.projectId === projectId).sort((a, b) => a.position - b.position) }))
@@ -56,8 +57,8 @@ const allOpen = computed(() => {
   const keys = groups.value.map(g => g.key)
   return keys.length > 0 && keys.every(key => state.expanded[state.bucket].has(key))
 })
-const showEmpty = computed(() => state.archive ? state.tasks.length === 0 && !state.busy : groups.value.length === 0 && !state.busy)
-const emptyText = computed(() => state.busy ? 'Загружаем задачи…' : state.archive ? 'Архив пока пуст.' : 'Здесь пока нет задач.')
+const showEmpty = computed(() => state.archive ? archiveTasks.value.length === 0 && !state.busy : groups.value.length === 0 && !state.busy)
+const emptyText = computed(() => state.busy ? 'Загружаем задачи…' : state.archive ? state.filter === 'all' ? 'Архив пока пуст.' : 'В архиве нет задач с таким статусом.' : 'Здесь пока нет задач.')
 const detailOrigin = computed(() => state.detail ? originPath(state.detail) : '')
 const selectedProject = computed(() => state.projects.find(x => x.id === state.linkProjectId))
 const selectedMilestone = computed(() => selectedProject.value?.milestones.find(x => x.id === state.linkMilestoneId))
@@ -68,6 +69,7 @@ const detailMoveLabel = computed(() => { const task = state.detail; if (!task) r
 const renamingKey = computed(() => state.renaming ? (state.renaming.kind === 'section' ? `section:${state.renaming.id}` : `task:${state.renaming.id}`) : '')
 const renamingValue = computed({ get: () => state.renaming?.value ?? '', set: (value: string) => { if (state.renaming) state.renaming.value = value } })
 const filters = [{ value: 'all', label: 'Все', dot: '' }, { value: 'New', label: 'Новые', dot: 'new' }, { value: 'InProgress', label: 'В работе', dot: 'work' }, { value: 'Done', label: 'Готово', dot: 'done' }]
+const archiveFilters = [{ value: 'all', label: 'Все' }, { value: 'Done', label: 'Выполненные' }, { value: 'unfinished', label: 'Без выполнения' }]
 
 const rootEl = ref<HTMLElement | null>(null)
 const groupsEl = ref<HTMLElement | null>(null)
@@ -149,6 +151,7 @@ function menuItemsFor(kind: 'task' | 'section' | 'project', id: string): MenuIte
     if (String(task.location).toLowerCase() === 'backlog' && isLinked(task)) items.push({ label: 'Вернуть в план', action: () => { void mutate(task, 'planning') } })
     items.push({ label: 'Переименовать', action: () => startRename('task', task.id) })
     if (!isArchived(task)) items.push({ label: 'Убрать в архив', danger: true, action: () => archiveTask(task) })
+    else items.push({ label: 'Удалить навсегда', danger: true, action: () => deleteArchivedTask(task) })
     return items
   }
   if (kind === 'section') {
@@ -484,6 +487,28 @@ function detailMove() {
   if (isArchived(task)) void mutate(task, 'restore').then(() => flash('Возвращено в Backlog'))
   else void moveTaskVia(task, isToday(task) || String(task.location).toLowerCase() === 'planned' ? 'backlog' : 'today')
 }
+function deleteArchivedTask(task: Task) {
+  if (!isArchived(task)) return
+  askConfirm({ title: 'Удалить задачу навсегда?', body: `«${task.title}» исчезнет из архива и расчёта задач фичи. Восстановить её будет нельзя.`, confirmLabel: 'Удалить навсегда', onConfirm: () => { void removeArchivedTask(task) } })
+}
+async function removeArchivedTask(task: Task) {
+  try {
+    await request(`/${task.id}`, { method: 'DELETE', body: JSON.stringify({ expectedVersion: task.version }) })
+    await (await getOfflineStore()).putEntity({ type: 'tasks.task.view', id: task.id, version: task.version + 1, payload: null, deleted: true, updatedAt: new Date().toISOString() })
+  } catch (error) {
+    if (!(error instanceof TypeError)) { state.error = (error as Error).message; return }
+    try {
+      await queueTask('tasks.task', task.id, task.version, { operation: 'delete', kind: 'task', id: task.id }, true)
+      state.error = 'Нет сети. Удаление сохранено и будет синхронизировано позже.'
+    } catch (saveError) { state.error = (saveError as Error).message; return }
+  }
+  state.tasks = state.tasks.filter(item => item.id !== task.id)
+  if (state.detail?.id === task.id) {
+    state.detail = null; state.archive = true
+    await router.replace('/tasks')
+  }
+  flash('Задача удалена')
+}
 
 // ---------- drag & reorder (pointer-based, order mode) ----------
 function validTaskDrop(moved: Task, target: Task | { projectId?: string }, place: 'row' | 'inside'): boolean {
@@ -810,6 +835,9 @@ onBeforeUnmount(() => {
           </button>
           <button type="button" class="order-mode-toggle" :aria-pressed="state.orderMode" :aria-label="state.orderMode ? 'Выключить сортировку' : 'Включить сортировку'" :title="state.orderMode ? 'Выключить сортировку' : 'Включить сортировку'" @click="toggleOrderMode">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h11M19 6v12m-2.5-2.5L19 18l2.5-2.5"/></svg>
+        <button v-else type="button" class="task-delete-icon" aria-label="Удалить задачу навсегда" @click="deleteArchivedTask(state.detail)">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 13h10l1-13"/><path d="M10 11v5M14 11v5"/></svg>
+        </button>
           </button>
           <button type="button" class="plus" aria-label="Создать задачу или раздел" @click="openCreateSheet">＋</button>
         </div>
@@ -826,7 +854,7 @@ onBeforeUnmount(() => {
 
       <div ref="scrollEl" class="scroll task-scroll">
         <div v-if="state.archive" ref="groupsEl" class="task-groups archive-flat">
-          <div v-for="task in state.tasks" :key="task.id" class="task-row-wrap" :data-reveal-key="`task:${task.id}`" :class="{ revealed: revealedKey === `task:${task.id}`, 'context-active': revealedKey === `task:${task.id}` }">
+          <div v-for="task in archiveTasks" :key="task.id" class="task-row-wrap" :data-reveal-key="`task:${task.id}`" :class="{ revealed: revealedKey === `task:${task.id}`, 'context-active': revealedKey === `task:${task.id}` }">
             <article class="task-row" :data-task-id="task.id" @contextmenu.prevent="rowContextMenu($event, `task:${task.id}`)" @pointerdown="rowPointerDown($event, `task:${task.id}`)" @pointermove="rowPointerMove" @pointerup="rowPointerUp" @pointercancel="rowPointerCancel">
               <template v-if="renamingKey === `task:${task.id}`">
                 <input ref="renameInputEl" v-model="renamingValue" class="task-inline-input" maxlength="160" @keydown.enter.prevent="commitRename(true)" @keydown.esc.prevent="commitRename(false)" @blur="commitRename(true)" @click.stop />
@@ -834,11 +862,15 @@ onBeforeUnmount(() => {
               <template v-else>
                 <button type="button" class="task-open" @click="onTaskOpenClick(task)">
                   <span v-if="isToday(task)" class="task-status-dot" :class="workState(task.workStatus)" />
-                  <span class="task-copy"><span class="task-title">{{ task.title }}</span></span>
+                  <span class="task-copy"><span class="task-title">{{ task.title }}</span><span class="task-archive-status">{{ statusName(task.workStatus) === 'Done' ? 'Выполнена' : 'Без выполнения' }}</span></span>
                 </button>
                 <button type="button" class="row-menu-trigger" :hidden="state.orderMode" :aria-label="`Действия с задачей «${task.title}»`" aria-haspopup="menu" @click.stop="triggerMenu(`task:${task.id}`)">⋯</button>
                 <ReorderHandle v-if="state.orderMode" :drag-kind="'task'" :drag-id="task.id" :label="`Перетащить ${task.title}`" />
               </template>
+      <div v-if="state.archive" class="task-filters" aria-label="Фильтр архива">
+        <button v-for="filter in archiveFilters" :key="filter.value" type="button" class="task-filter" :class="{ active: state.filter === filter.value }" :aria-pressed="state.filter === filter.value" @click="state.filter = filter.value">{{ filter.label }}</button>
+      </div>
+
             </article>
           </div>
         </div>

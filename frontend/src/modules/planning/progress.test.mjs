@@ -1,8 +1,34 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { epicProgress, projectProgress } from './progress.ts';
+import { epicProgress, projectProgress, featureTaskProgress } from './progress.ts';
 
 const epic = (total, done) => ({ features: Array.from({ length: total }, (_, i) => ({ status: i < done ? 'done' : 'planned' })) });
+
+test('feature progress retains completed tasks after archiving', () => {
+  const tasks = Array.from({ length: 8 }, (_, i) => ({ location: i < 2 ? 'archived' : 'planned', workStatus: i < 2 ? 'done' : 'new' }));
+  assert.deepEqual(featureTaskProgress(tasks), { completed: 2, total: 8, excluded: 0, canComplete: false });
+});
+
+test('unfinished archived tasks are excluded, not counted as completed', () => {
+  assert.deepEqual(featureTaskProgress([
+    { location: 'Archived', workStatus: 'New' },
+    { location: 3, workStatus: 1 },
+    { location: 'Archived', workStatus: 'Done' },
+    { location: 'Today', workStatus: 'Done' },
+  ]), { completed: 2, total: 2, excluded: 2, canComplete: true });
+});
+
+test('empty features and features containing only cancelled tasks cannot be completed', () => {
+  assert.equal(featureTaskProgress([]).canComplete, false);
+  assert.equal(featureTaskProgress([{ location: 'archived', workStatus: 'new' }]).canComplete, false);
+});
+
+test('restoring an unfinished task blocks completion; numeric statuses work', () => {
+  const tasks = [{ location: 3, workStatus: 2 }, { location: '3', workStatus: '2' }];
+  assert.equal(featureTaskProgress(tasks).canComplete, true);
+  tasks[1] = { location: 'backlog', workStatus: 'new' };
+  assert.deepEqual(featureTaskProgress(tasks), { completed: 1, total: 2, excluded: 0, canComplete: false });
+});
 
 test('project progress gives equal weight to epics with different feature counts', () => {
   assert.equal(projectProgress({ milestones: [epic(2, 2), epic(8, 0)] }), 50);
