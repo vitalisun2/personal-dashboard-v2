@@ -15,14 +15,7 @@ public sealed class Project
     public int Position { get; private set; }
     public bool IsArchived { get; private set; }
     public IReadOnlyList<Milestone> Milestones => _milestones;
-    public int ProgressPercent
-    {
-        get
-        {
-            var features = _milestones.SelectMany(x => x.Features).ToArray();
-            return features.Length == 0 ? 0 : (int)Math.Round(100d * features.Count(x => x.Status == FeatureStatus.Done) / features.Length, MidpointRounding.AwayFromZero);
-        }
-    }
+    public int ProgressPercent => _milestones.Count == 0 ? 0 : (int)Math.Round(_milestones.Average(x => x.ProgressPercent), MidpointRounding.AwayFromZero);
     public Milestone AddMilestone(string title, string? description = null, Guid? id = null) { var item = new Milestone(title, description, _milestones.Count, id); _milestones.Add(item); Touch(); return item; }
     public bool ReorderMilestones(IReadOnlyList<Guid> ids) { var changed = Reorder(_milestones, ids); if (changed) Touch(); return changed; }
     public void Rename(string title, string? description) { Title = Required(title); Description = description?.Trim() ?? ""; Touch(); MarkChildrenUpdated(); }

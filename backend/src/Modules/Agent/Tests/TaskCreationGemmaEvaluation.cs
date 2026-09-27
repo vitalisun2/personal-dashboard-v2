@@ -32,7 +32,7 @@ public sealed class TaskCreationGemmaEvaluation
             new Case("unknown_feature", "Добавь задачу «Проверить письма» в фичу «Почтовые рассылки».", null, null),
             new Case("duplicate_feature", "Добавь в фичу «Авторизация» задачу «Проверить пароль».", null, null, Duplicate: true),
             new Case("conversation_reference", "Добавь туда задачу «Проверить пароль».", "Проверить пароль", "planned", Feature: Auth.FeatureId,
-                History: [new("user", "Работаем с фичей «Авторизация» проекта «Кабинет», веха «Первый релиз»."), new("assistant", "Обсуждаем фичу «Кабинет / Первый релиз / Авторизация».")]),
+                History: [new("user", "Работаем с фичей «Авторизация» проекта «Кабинет», эпик «Первый релиз»."), new("assistant", "Обсуждаем фичу «Кабинет / Первый релиз / Авторизация».")]),
             new Case("dictated_description", "Добавь задачу «Позвонить в сервис». В описании укажи: эээ узнать стоимость замены аккумулятора.", "Позвонить в сервис", "backlog", PersonalId, Body: "узнать стоимость замены аккумулятора")
         };
         var selected = Environment.GetEnvironmentVariable("GEMMA_TASK_CASE");

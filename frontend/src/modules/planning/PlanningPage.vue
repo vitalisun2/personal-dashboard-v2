@@ -5,6 +5,7 @@ import { getOfflineStore, saveOfflineMutation } from '../../offline/runtime'
 import type { OfflineEntity, SyncOperation } from '../../offline/types'
 import ReorderHandle from '../../shared/ReorderHandle.vue'
 import { startReorderDrag } from '../../shared/reorderDrag'
+import { epicProgress, projectProgress } from './progress'
 
 type Feature = { id: string; title: string; description: string; position: number; version: number; status: string | number }
 type Milestone = { id: string; title: string; description: string; position: number; version: number; progressPercent: number; features: Feature[] }
@@ -53,9 +54,9 @@ const contextItems = computed<ContextItem[]>(() => {
   if (kind === 'milestone') {
     const item = project.value?.milestones.find(x => x.id === id); if (!item) return []
     return [
-      { label: 'Открыть веху', action: () => void goMilestone(id) },
+      { label: 'Открыть эпик', action: () => void goMilestone(id) },
       { label: 'Изменить', action: () => startEdit('milestone', item) },
-      { label: 'Удалить веху', danger: true, action: () => deleteEntity('milestone', item) },
+      { label: 'Удалить эпик', danger: true, action: () => deleteEntity('milestone', item) },
     ]
   }
   if (kind === 'feature') {
@@ -84,9 +85,9 @@ const contextMenuTitle = computed(() => {
   const item = kind === 'milestone' ? project.value?.milestones.find(x => x.id === id) : kind === 'feature' ? milestone.value?.features.find(x => x.id === id) : state.tasks.find(x => x.id === id)
   return item?.title || ''
 })
-const sheetNames = { project: 'проект', milestone: 'веху', feature: 'фичу', task: 'задачу' } as Record<string, string>
-const sheetTitle = computed(() => state.editType ? `Изменить ${sheetNames[state.editType] || ''}` : ({ project: 'Новый проект', milestone: 'Новая веха', feature: 'Новая фича', task: 'Новая задача' } as Record<string, string>)[state.createType] || '')
-const namePlaceholder = computed(() => state.createType === 'project' || state.editType === 'project' ? 'Название проекта' : state.createType === 'milestone' || state.editType === 'milestone' ? 'Название вехи' : state.createType === 'feature' || state.editType === 'feature' ? 'Название фичи' : 'Название задачи')
+const sheetNames = { project: 'проект', milestone: 'эпик', feature: 'фичу', task: 'задачу' } as Record<string, string>
+const sheetTitle = computed(() => state.editType ? `Изменить ${sheetNames[state.editType] || ''}` : ({ project: 'Новый проект', milestone: 'Новый эпик', feature: 'Новая фича', task: 'Новая задача' } as Record<string, string>)[state.createType] || '')
+const namePlaceholder = computed(() => state.createType === 'project' || state.editType === 'project' ? 'Название проекта' : state.createType === 'milestone' || state.editType === 'milestone' ? 'Название эпика' : state.createType === 'feature' || state.editType === 'feature' ? 'Название фичи' : 'Название задачи')
 const saveButtonLabel = computed(() => state.editType ? 'Сохранить' : state.createType === 'task' ? 'Создать задачу' : 'Создать')
 
 const sectionRef = ref<HTMLElement | null>(null)
@@ -640,24 +641,24 @@ onBeforeUnmount(onUnmountedCleanup)
     <div v-else ref="scrollRef" class="scroll planning-scroll">
       <template v-if="depth === 1">
         <div class="planning-project-summary">
-          <div class="planning-summary-top"><span>Прогресс проекта</span><strong>{{ project.progressPercent }}%</strong></div>
-          <div class="planning-progress-track"><div class="planning-progress-fill" :style="{ width: `${project.progressPercent}%` }" /></div>
+          <div class="planning-summary-top"><span>Прогресс проекта</span><strong>{{ projectProgress(project) }}%</strong></div>
+          <div class="planning-progress-track"><div class="planning-progress-fill" :style="{ width: `${projectProgress(project)}%` }" /></div>
         </div>
-        <div class="planning-list-head"><span>Вехи</span><div class="planning-list-actions"><button class="order-mode-toggle planning-order-toggle" type="button" :aria-pressed="state.orderMode ? 'true' : 'false'" :aria-label="state.orderMode ? 'Готово' : 'Включить сортировку'" @click="toggleOrderMode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h11M19 6v12m-2.5-2.5L19 18l2.5-2.5" /></svg></button><button type="button" aria-label="Добавить веху" @click="startCreate('milestone')">＋</button></div></div>
-        <div v-if="!project.milestones.length" class="planning-empty">Вехи появятся здесь.</div>
+        <div class="planning-list-head"><span>Эпики</span><div class="planning-list-actions"><button class="order-mode-toggle planning-order-toggle" type="button" :aria-pressed="state.orderMode ? 'true' : 'false'" :aria-label="state.orderMode ? 'Готово' : 'Включить сортировку'" @click="toggleOrderMode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h11M19 6v12m-2.5-2.5L19 18l2.5-2.5" /></svg></button><button type="button" aria-label="Добавить эпик" @click="startCreate('milestone')">＋</button></div></div>
+        <div v-if="!project.milestones.length" class="planning-empty">Эпики появятся здесь.</div>
         <div :key="state.renderTick" class="planning-roadmap">
           <template v-if="state.orderMode">
             <div v-for="item in project.milestones" :key="'order-' + item.id" class="planning-milestone-row planning-order-row" :data-order-id="item.id">
               <span class="planning-milestone-title">{{ item.title }}</span>
-              <span class="planning-milestone-progress"><strong>{{ item.progressPercent }}%</strong><div class="planning-progress-track"><div class="planning-progress-fill" :style="{ width: `${item.progressPercent}%` }" /></div></span>
-              <ReorderHandle class="planning-order-handle" :label="`Перетащить веху ${item.title}`" @pointerdown="orderDragStart($event, item.id)" />
+              <span class="planning-milestone-progress"><strong>{{ epicProgress(item) }}%</strong><div class="planning-progress-track"><div class="planning-progress-fill" :style="{ width: `${epicProgress(item)}%` }" /></div></span>
+              <ReorderHandle class="planning-order-handle" :label="`Перетащить эпик ${item.title}`" @pointerdown="orderDragStart($event, item.id)" />
             </div>
           </template>
           <template v-else>
             <div v-for="item in project.milestones" :key="item.id" class="planning-milestone-row planning-context-row" :class="{ 'context-active': isContextActive('milestone', item.id) }" @pointerdown="rowPointerDown($event, 'milestone', item.id)" @pointermove="rowPointerMove" @pointerup="rowPointerUp" @pointercancel="rowPointerUp" @contextmenu.prevent="rowContextMenu($event, 'milestone', item.id)">
               <button class="planning-row-main" type="button" @click="openMilestone(item.id)">
                 <span class="planning-milestone-title">{{ item.title }}</span>
-                <span class="planning-milestone-progress"><strong>{{ item.progressPercent }}%</strong><div class="planning-progress-track"><div class="planning-progress-fill" :style="{ width: `${item.progressPercent}%` }" /></div></span>
+                <span class="planning-milestone-progress"><strong>{{ epicProgress(item) }}%</strong><div class="planning-progress-track"><div class="planning-progress-fill" :style="{ width: `${epicProgress(item)}%` }" /></div></span>
               </button>
               <span class="planning-chevron-slot"><span class="planning-row-arrow" aria-hidden="true">›</span><button class="planning-menu-trigger" type="button" aria-haspopup="menu" :aria-expanded="isContextActive('milestone', item.id) ? 'true' : 'false'" :aria-label="`Действия с «${item.title}»`" @click.stop="toggleContextMenu($event, 'milestone', item.id)">⋯</button></span>
             </div>
@@ -671,13 +672,14 @@ onBeforeUnmount(onUnmountedCleanup)
           <div class="planning-kicker">{{ project.title }}</div>
           <div class="planning-head-main">
             <button class="planning-head-title" type="button" @click="startEdit('milestone', milestone)">{{ milestone.title }}</button>
-            <div class="planning-head-actions"><button class="order-mode-toggle planning-order-toggle" type="button" :aria-pressed="state.orderMode ? 'true' : 'false'" :aria-label="state.orderMode ? 'Готово' : 'Включить сортировку'" @click="toggleOrderMode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h11M19 6v12m-2.5-2.5L19 18l2.5-2.5" /></svg></button><button class="planning-head-plus" type="button" aria-label="Добавить фичу" @click="startCreate('feature')">＋</button></div>
-          </div>
-          <div class="planning-milestone-progress-block">
-            <div class="planning-progress-top"><span>Прогресс вехи</span><strong>{{ completedFeatures }} из {{ milestone.features.length }} фич</strong></div>
-            <div class="planning-progress-track"><div class="planning-progress-fill" :style="{ width: `${milestone.progressPercent}%` }" /></div>
+            <div class="planning-epic-progress" :aria-label="`Прогресс эпика: ${epicProgress(milestone)}%, завершено ${completedFeatures} из ${milestone.features.length} фич`">
+              <strong>{{ epicProgress(milestone) }}%</strong>
+              <div class="planning-progress-track"><div class="planning-progress-fill" :style="{ width: `${epicProgress(milestone)}%` }" /></div>
+              <span>{{ completedFeatures }} из {{ milestone.features.length }} фич</span>
+            </div>
           </div>
         </div>
+        <div class="planning-list-head"><span>Фичи</span><div class="planning-list-actions"><button class="order-mode-toggle planning-order-toggle" type="button" :aria-pressed="state.orderMode ? 'true' : 'false'" :aria-label="state.orderMode ? 'Готово' : 'Включить сортировку'" @click="toggleOrderMode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h11M19 6v12m-2.5-2.5L19 18l2.5-2.5" /></svg></button><button type="button" aria-label="Добавить фичу" @click="startCreate('feature')">＋</button></div></div>
         <div v-if="!milestone.features.length" class="planning-empty">Фичи появятся здесь.</div>
         <div :key="state.renderTick" class="planning-feature-list">
           <template v-if="state.orderMode">

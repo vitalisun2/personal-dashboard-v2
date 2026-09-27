@@ -16,10 +16,10 @@
   const task=()=>model.getTask(state.taskId);
   const featureTasks=item=>model.tasks.filter(task=>task.featureId===item?.id);
   const percent=value=>Math.max(0,Math.min(100,Math.round(value)||0));
-  const featureProgress=item=>{const tasks=featureTasks(item);return tasks.length?percent(tasks.filter(task=>task.completed).length/tasks.length*100):0};
+  const featureProgress=item=>item.status==='done'?100:0;
   const milestoneProgress=item=>item.features.length?percent(item.features.reduce((sum,feature)=>sum+featureProgress(feature),0)/item.features.length):0;
   const projectProgress=item=>item.milestones.length?percent(item.milestones.reduce((sum,milestone)=>sum+milestoneProgress(milestone),0)/item.milestones.length):0;
-  const completedFeatures=item=>item.features.filter(feature=>{const tasks=featureTasks(feature);return tasks.length&&tasks.every(task=>task.completed)}).length;
+  const completedFeatures=item=>item.features.filter(feature=>feature.status==='done').length;
   const track=value=>`<div class="planning-progress-track"><div class="planning-progress-fill" style="width:${percent(value)}%"></div></div>`;
   const trash=()=>'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 4.75h6m-8.5 2.5h10m-8.5 0-.35 10.1c-.03.84.64 1.55 1.48 1.55h4.74c.84 0 1.51-.71 1.48-1.55l-.35-10.1M10.25 10v5.5M13.75 10v5.5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
   const orderAction=()=>`<button class="order-mode-toggle planning-order-toggle" type="button" data-action="toggle-order" aria-label="${state.orderMode?'Выключить':'Включить'} сортировку" aria-pressed="${state.orderMode}" title="${state.orderMode?'Выключить':'Включить'} сортировку"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h11M19 6v12m-2.5-2.5L19 18l2.5-2.5" /></svg></button>`;
@@ -42,12 +42,12 @@
   function renderRoadmap(){
     const item=project();if(!item){scroll.innerHTML='<div class="planning-empty">Нет проектов. Нажмите ＋, чтобы добавить новый проект.</div>';return}
     const progress=projectProgress(item);
-    scroll.innerHTML=`<div class="planning-project-summary"><div class="planning-summary-top"><span>Прогресс проекта</span><strong>${progress}%</strong></div>${track(progress)}</div><div class="planning-list-head"><span>Вехи</span><div class="planning-list-actions">${orderAction()}<button type="button" data-action="create-milestone" aria-label="Добавить веху">＋</button></div></div><div class="planning-roadmap">${item.milestones.map(entry=>state.orderMode?`<div class="planning-milestone-row planning-order-row" data-order-id="${safe(entry.id)}"><span class="planning-milestone-title">${safe(entry.title)}</span><span class="planning-milestone-progress"><strong>${milestoneProgress(entry)}%</strong>${track(milestoneProgress(entry))}</span>${dragHandle()}</div>`:`<div class="planning-milestone-row planning-context-row" data-context-kind="milestone" data-context-id="${safe(entry.id)}"><button class="planning-row-main" type="button" data-action="open-milestone" data-id="${safe(entry.id)}"><span class="planning-milestone-title">${safe(entry.title)}</span><span class="planning-milestone-progress"><strong>${milestoneProgress(entry)}%</strong>${track(milestoneProgress(entry))}</span></button>${chevronSlot('milestone',entry)}</div>`).join('')}</div>`;
+    scroll.innerHTML=`<div class="planning-project-summary"><div class="planning-summary-top"><span>Прогресс проекта</span><strong>${progress}%</strong></div>${track(progress)}</div><div class="planning-list-head"><span>Эпики</span><div class="planning-list-actions">${orderAction()}<button type="button" data-action="create-milestone" aria-label="Добавить эпик">＋</button></div></div><div class="planning-roadmap">${item.milestones.map(entry=>state.orderMode?`<div class="planning-milestone-row planning-order-row" data-order-id="${safe(entry.id)}"><span class="planning-milestone-title">${safe(entry.title)}</span><span class="planning-milestone-progress"><strong>${milestoneProgress(entry)}%</strong>${track(milestoneProgress(entry))}</span>${dragHandle()}</div>`:`<div class="planning-milestone-row planning-context-row" data-context-kind="milestone" data-context-id="${safe(entry.id)}"><button class="planning-row-main" type="button" data-action="open-milestone" data-id="${safe(entry.id)}"><span class="planning-milestone-title">${safe(entry.title)}</span><span class="planning-milestone-progress"><strong>${milestoneProgress(entry)}%</strong>${track(milestoneProgress(entry))}</span></button>${chevronSlot('milestone',entry)}</div>`).join('')}</div>`;
   }
   function renderMilestone(){
     const item=milestone(),p=project();if(!item||!p){state.screen='roadmap';render();return}
     const progress=milestoneProgress(item);
-    scroll.innerHTML=`<button class="doc-action doc-back planning-inline-back" type="button" data-action="back-roadmap">← Назад</button><div class="planning-head-card"><div class="planning-kicker">${safe(p.title)}</div><div class="planning-head-main"><button class="planning-head-title" type="button" data-action="edit-milestone">${safe(item.title)}</button><div class="planning-head-actions">${orderAction()}<button class="planning-head-plus" type="button" data-action="create-feature" aria-label="Добавить фичу">＋</button></div></div><div class="planning-milestone-progress-block"><div class="planning-progress-top"><span>Прогресс вехи</span><strong>${completedFeatures(item)} из ${item.features.length} фич</strong></div>${track(progress)}</div></div><div class="planning-feature-list">${item.features.map(entry=>state.orderMode?`<div class="planning-feature-row planning-order-row" data-order-id="${safe(entry.id)}"><span>${safe(entry.title)}</span>${dragHandle()}</div>`:`<div class="planning-feature-row planning-context-row" data-context-kind="feature" data-context-id="${safe(entry.id)}"><button class="planning-row-main" type="button" data-action="open-feature" data-id="${safe(entry.id)}"><span>${safe(entry.title)}</span></button>${chevronSlot('feature',entry)}</div>`).join('')}</div>`;
+    scroll.innerHTML=`<button class="doc-action doc-back planning-inline-back" type="button" data-action="back-roadmap">← Назад</button><div class="planning-head-card"><div class="planning-kicker">${safe(p.title)}</div><div class="planning-head-main"><button class="planning-head-title" type="button" data-action="edit-milestone">${safe(item.title)}</button><div class="planning-epic-progress" aria-label="Прогресс эпика: ${progress}%, завершено ${completedFeatures(item)} из ${item.features.length} фич"><strong>${progress}%</strong>${track(progress)}<span>${completedFeatures(item)} из ${item.features.length} фич</span></div></div></div><div class="planning-list-head"><span>Фичи</span><div class="planning-list-actions">${orderAction()}<button type="button" data-action="create-feature" aria-label="Добавить фичу">＋</button></div></div><div class="planning-feature-list">${item.features.map(entry=>state.orderMode?`<div class="planning-feature-row planning-order-row" data-order-id="${safe(entry.id)}"><span>${safe(entry.title)}</span>${dragHandle()}</div>`:`<div class="planning-feature-row planning-context-row" data-context-kind="feature" data-context-id="${safe(entry.id)}"><button class="planning-row-main" type="button" data-action="open-feature" data-id="${safe(entry.id)}"><span>${safe(entry.title)}</span></button>${chevronSlot('feature',entry)}</div>`).join('')}</div>`;
   }
   function renderFeature(){
     const item=feature(),m=milestone(),p=project();if(!item||!m||!p){state.screen='milestone';render();return}
@@ -85,9 +85,9 @@
   function openEditor(type,id=null){
     if((type==='milestone'&&!project())||(type==='feature'&&!milestone())||(type==='task'&&!feature()))return;
     state.editor={type,id};state.sheetScroll=scroll.scrollTop;state.menuOpen=false;renderToolbar();
-    const names={project:'проект',milestone:'веху',feature:'фичу',task:'задачу'};
-    sheetTitle.textContent=id?`Изменить ${names[type]}`:({project:'Новый проект',milestone:'Новая веха',feature:'Новая фича',task:'Новая задача'})[type];
-    nameInput.placeholder=type==='project'?'Название проекта':type==='milestone'?'Название вехи':type==='feature'?'Название фичи':'Название задачи';
+    const names={project:'проект',milestone:'эпик',feature:'фичу',task:'задачу'};
+    sheetTitle.textContent=id?`Изменить ${names[type]}`:({project:'Новый проект',milestone:'Новый эпик',feature:'Новая фича',task:'Новая задача'})[type];
+    nameInput.placeholder=type==='project'?'Название проекта':type==='milestone'?'Название эпика':type==='feature'?'Название фичи':'Название задачи';
     const target=id?(type==='project'?model.getProject(id):type==='milestone'?milestone():type==='feature'?feature():task()):null;
     nameInput.value=target?.title||'';descriptionInput.value=target?.description||'';
     const showDescription=type==='task'||Boolean(id);descriptionInput.hidden=!showDescription;descriptionLabel.hidden=!showDescription;sheetContext.hidden=true;
@@ -143,9 +143,9 @@
   }
   function menuItems(kind,id){
     if(kind==='milestone')return[
-      {label:'Открыть веху',action:()=>navigate('milestone',id)},
+      {label:'Открыть эпик',action:()=>navigate('milestone',id)},
       {label:'Изменить',action:()=>openEditor('milestone',id)},
-      {label:'Удалить веху',danger:true,action:()=>deleteEntity('milestone',id)}
+      {label:'Удалить эпик',danger:true,action:()=>deleteEntity('milestone',id)}
     ];
     if(kind==='feature')return[
       {label:'Открыть фичу',action:()=>navigate('feature',id)},

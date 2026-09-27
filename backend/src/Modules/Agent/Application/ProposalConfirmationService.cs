@@ -160,7 +160,7 @@ public sealed class ProposalConfirmationService(
         if (mutation.Planning?.FeatureId is { } featureId)
         {
             var projectId = mutation.Planning.ProjectId ?? throw new InvalidOperationException("Задача с фичей должна содержать проект.");
-            var milestoneId = mutation.Planning.MilestoneId ?? throw new InvalidOperationException("Задача с фичей должна содержать этап.");
+            var milestoneId = mutation.Planning.MilestoneId ?? throw new InvalidOperationException("Задача с фичей должна содержать эпик.");
             var project = await planning.ReadAsync(PlanningEntityKind.Project, projectId, cancellationToken);
             var milestone = await planning.ReadAsync(PlanningEntityKind.Milestone, milestoneId, cancellationToken);
             var feature = await planning.ReadAsync(PlanningEntityKind.Feature, featureId, cancellationToken);
@@ -171,7 +171,7 @@ public sealed class ProposalConfirmationService(
                 milestone.Version != LongValue(payload, "expectedMilestoneVersion") ||
                 feature.Version != LongValue(payload, "expectedFeatureVersion") ||
                 !string.Equals($"{project.Title} / {milestone.Title} / {feature.Title}", expectedPath, StringComparison.Ordinal))
-                throw new InvalidOperationException("Выбранная фича, её этап или проект изменились либо больше недоступны. Подготовьте задачу заново.");
+                throw new InvalidOperationException("Выбранная фича, её эпик или проект изменились либо больше недоступны. Подготовьте задачу заново.");
             return;
         }
 

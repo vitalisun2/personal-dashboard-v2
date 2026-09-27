@@ -288,7 +288,7 @@ public sealed class TaskCreationPreparationTests
         var result = await service.RespondAsync(Request("Добавь задачу «Проверить доступ» в проект Продукт."));
 
         Assert.Null(result.Proposal);
-        Assert.Contains("этап", result.Answer, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("эпик", result.Answer, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]

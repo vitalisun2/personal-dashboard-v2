@@ -21,7 +21,7 @@
     {id:'project-pos',title:'Personal OS',description:'Единое пространство для знаний, планов и ежедневных дел.',milestones:[
       {id:'milestone-foundation',title:'Основа приложения',description:'Общий интерфейс и офлайн данные.',features:[
         {id:'feature-knowledge',title:'База знаний',description:'Дерево документов и быстрый поиск.',status:'done'},
-        {id:'feature-planning',title:'Планирование',description:'Проекты, вехи и фичи.',status:'active'},
+        {id:'feature-planning',title:'Планирование',description:'Проекты, эпики и фичи.',status:'active'},
         {id:'feature-sync',title:'Синхронизация',description:'Изменения без сети и обмен с сервером.',status:'planned'}
       ]},
       {id:'milestone-agent',title:'Умный помощник',description:'Общий чат и действия через инструменты.',features:[
@@ -41,7 +41,7 @@
     {id:'task-2',title:'Сверстать экран выбора мира',projectId:'project-lch',milestoneId:'milestone-worlds',featureId:'feature-newyork',status:'backlog',completed:false},
     {id:'task-3',title:'Проверить переходы между сегментами',projectId:'project-lch',milestoneId:'milestone-worlds',featureId:'feature-paris',status:'today',completed:false},
     {id:'task-4',title:'Собрать чеклист релиза',projectId:'project-lch',milestoneId:'milestone-release',featureId:'feature-softlaunch',status:'planned',completed:false},
-    {id:'task-5',title:'Описать модель вех и фич',projectId:'project-pos',milestoneId:'milestone-foundation',featureId:'feature-planning',status:'backlog',completed:false},
+    {id:'task-5',title:'Описать модель эпиков и фич',projectId:'project-pos',milestoneId:'milestone-foundation',featureId:'feature-planning',status:'backlog',completed:false},
     {id:'task-6',title:'Прототип карточки проекта',projectId:'project-pos',milestoneId:'milestone-foundation',featureId:'feature-planning',status:'planned',completed:false},
     {id:'task-7',title:'Оплатить хостинг',section:'Личное',description:'Продлить сервер для личных проектов.',status:'today',workStatus:'active',completed:false},
     {id:'task-8',title:'Разобрать заметки недели',section:'Личное',status:'backlog',completed:false},

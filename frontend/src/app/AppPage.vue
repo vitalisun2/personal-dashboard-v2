@@ -12,7 +12,7 @@ const modulePages = Object.values(
 const registeredPage = computed(() => modulePages.find((page) => page.section === props.section)?.component)
 const pages = {
   knowledge: { title: 'База знаний', description: 'Ваши разделы и документы будут собраны здесь.' },
-  planning: { title: 'Планирование', description: 'Проекты, вехи и фичи появятся здесь.' },
+  planning: { title: 'Планирование', description: 'Проекты, эпики и фичи появятся здесь.' },
   tasks: { title: 'Задачи', description: 'Backlog и задачи на сегодня появятся здесь.' },
   chat: { title: 'Агент', description: 'Здесь будет единый чат с доступом к вашим данным.' },
   search: { title: 'Поиск', description: 'Единый поиск по базе знаний, планам и задачам появится здесь.' },

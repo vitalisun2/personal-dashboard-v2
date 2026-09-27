@@ -197,8 +197,8 @@ button { border: 0; background: transparent; cursor: pointer; }
 .phone-shell .planning-summary-top strong{font-size:13px;font-weight:720;color:#b9d2f4}
 .phone-shell .planning-progress-track{height:4.7px;margin-top:8px;background:#2a3743;border-radius:99px;overflow:hidden}
 .phone-shell .planning-progress-fill{height:100%;background:#6f94d8;border-radius:99px}
-.phone-shell .planning-list-head{position:relative;display:flex;align-items:center;justify-content:center;gap:10px;margin:10px 2px 12px;min-height:30px}
-.phone-shell .planning-list-head>span{font-size:12px;font-weight:700;color:#8ea0b3;letter-spacing:.02em;text-align:center}
+.phone-shell .planning-list-head{position:relative;display:flex;align-items:center;justify-content:center;gap:10px;margin:10px 2px 12px;padding-inline:76px;min-height:30px}
+.phone-shell .planning-list-head>span{font-size:24px;line-height:1.2;font-weight:700;color:#8ea0b3;letter-spacing:.02em;text-align:center}
 .phone-shell .planning-list-head>button{position:absolute;right:0;top:50%;transform:translateY(-50%);width:30px;height:30px;border-radius:10px;background:#18242f;color:#d6e1ed;font-size:18px;display:grid;place-items:center}
 .phone-shell .planning-list-actions,.phone-shell .planning-head-actions{display:flex;align-items:center;gap:7px}
 .phone-shell .planning-list-head>.planning-list-actions{position:absolute;right:3px;top:50%;transform:translateY(-50%);max-width:calc(100% - 58px);overflow:visible;z-index:1}
@@ -228,7 +228,11 @@ button { border: 0; background: transparent; cursor: pointer; }
 .phone-shell .planning-head-card{padding:2px 2px 12px;margin-bottom:8px}
 .phone-shell .planning-kicker{font-size:11px;color:#74869a;margin-bottom:6px}
 .phone-shell .planning-head-main{display:flex;align-items:center;justify-content:space-between;gap:10px}
-.phone-shell .planning-head-title{flex:1;min-width:0;padding:0;color:inherit;text-align:left;font-size:22px;font-weight:740;line-height:1.2}
+.phone-shell .planning-epic-progress{flex:0 0 104px;max-width:45%;text-align:right}
+.phone-shell .planning-epic-progress>strong{display:block;font-size:18px;font-weight:720;color:#b9d2f4}
+.phone-shell .planning-epic-progress>span{display:block;margin-top:5px;font-size:11px;color:#8ea0b3}
+.phone-shell .planning-epic-progress .planning-progress-track{margin-top:5px}
+.phone-shell .planning-head-title{flex:1;min-width:0;padding:0;color:inherit;text-align:left;font-size:22px;font-weight:740;line-height:1.2;overflow-wrap:anywhere}
 .phone-shell .planning-head-plus{width:34px;height:34px;border-radius:11px;background:#18242f;color:#e3edf7;font-size:20px;display:grid;place-items:center;flex:none}
 .phone-shell .planning-milestone-progress-block{margin-top:10px}
 .phone-shell .planning-progress-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:6px}

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "test": "node --experimental-strip-types --test src/offline/sync.test.mjs",
+    "test": "node --experimental-strip-types --test src/offline/sync.test.mjs src/modules/planning/progress.test.mjs",
     "preview": "vite preview"
   },
   "dependencies": {
