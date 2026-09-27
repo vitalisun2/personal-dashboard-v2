@@ -144,6 +144,14 @@ function proposalStatusLabel(turn: ChatTurn): string {
     default: return 'статус неизвестен'
   }
 }
+function searchCoverageNote(turn: ChatTurn): string {
+  // Saved search turns contain server diagnostics from both search passes.
+  const diagnostics = turn.assistantMessage.toLowerCase()
+  if (diagnostics.includes('смысловой поиск временно недоступен')) return 'Поиск по смыслу временно недоступен.'
+  if (diagnostics.includes('проверка релевантности gemma недоступна')) return 'Результаты пока без проверки релевантности.'
+  if (diagnostics.includes('смысловой индекс ещё')) return 'Поисковый индекс ещё обновляется.'
+  return 'Показаны наиболее подходящие результаты.'
+}
 function onInputKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() }
 }
@@ -194,7 +202,7 @@ watch(input, () => { void nextTick(resizeInput) })
                 <span v-if="sourceProximity(source) !== null" class="chat-source-proximity">Близость: {{ sourceProximity(source) }}</span>
               </div>
             </div>
-            <div v-if="isShowResults(turn) && turn.assistantMessage" class="chat-bubble chat-coverage-note">{{ turn.assistantMessage }}</div>
+            <p v-if="isShowResults(turn)" class="chat-coverage-note">{{ searchCoverageNote(turn) }}</p>
             <div v-if="turn.proposalId && turn.changes?.length" class="proposal-card">
               <div class="proposal-heading">Предложение · {{ proposalStatusLabel(turn) }}</div>
               <div v-for="change in turn.changes" :key="change.id" class="proposal-preview">

@@ -29,6 +29,7 @@
 .chat-source-context{margin:2px 0;color:#d0dce5;line-height:1.5;white-space:pre-wrap}
 .chat-source-context mark{color:inherit;background:#625329;border-radius:2px}
 .chat-source-path,.chat-source-proximity{font-size:11px;color:#92aabc;line-height:1.4}
+.chat-coverage-note{margin:8px 2px 0;color:#8797a6;font-size:12px;line-height:1.4}
 .load-older{display:block;min-height:38px;margin:4px auto 12px;padding:0 12px;border:1px solid #2b3c4a;border-radius:11px;background:#18242f;color:#c8d3df;font-size:13px;font-weight:650}
 .load-older:disabled{opacity:.5}
 .chat-state{margin:8px 0;color:#8797a6;font-size:13px}
