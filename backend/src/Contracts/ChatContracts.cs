@@ -3,7 +3,7 @@ using PersonalDashboard.V2.Contracts.Search;
 
 namespace PersonalDashboard.V2.Contracts.Chat;
 
-public sealed record ChatConversationState(Guid Id, string? Title, DateTimeOffset CreatedAtUtc);
+public sealed record ChatConversationState(Guid Id, string? Title, DateTimeOffset CreatedAtUtc, string Area = "general");
 
 public sealed record ChatConversationSummary(Guid Id, string? Title, DateTimeOffset UpdatedAtUtc, long TurnCount);
 
@@ -13,7 +13,8 @@ public sealed record ChatTurnScope(
     string Mode,
     string? EntityType,
     Guid? EntityId,
-    long? EntityVersion);
+    long? EntityVersion,
+    string Area = "general");
 
 public enum ChatModelRoute { Default, ManualSelection, AutomaticFallback }
 
@@ -61,6 +62,20 @@ public interface IChatConversationStore
 
     Task<ChatConversationState> CreateConversationAsync(Guid id, string? title, CancellationToken cancellationToken = default);
 
+    Task<ChatConversationState> CreateConversationAsync(Guid id, string? title, string area, CancellationToken cancellationToken = default) =>
+        CreateConversationAsync(id, title, cancellationToken);
+
+    Task<T> ExecuteConversationAsync<T>(Guid conversationId, Func<CancellationToken, Task<T>> action, CancellationToken cancellationToken = default) =>
+        action(cancellationToken);
+
+    async Task AppendTurnWithProposalAsync(ChatTurn turn, ChatProposal? replacement, CancellationToken cancellationToken = default)
+    {
+        await AppendTurnAsync(turn, cancellationToken);
+        if (replacement is null) return;
+        await DismissPendingProposalsAsync(turn.ConversationId, cancellationToken);
+        await SaveProposalAsync(replacement, cancellationToken);
+    }
+
     Task<ChatConversationPage> ListConversationsAsync(
         string? cursor,
         int pageSize,
@@ -91,7 +106,8 @@ public interface IChatConversationStore
 
     Task<int> DismissPendingProposalsAsync(Guid conversationId, CancellationToken cancellationToken = default);
 
-    // Call within ITransactionRunner so proposal state and domain writes commit together.
+    // Serialize confirmation through ExecuteConversationAsync. Apply domain writes in their durable transaction,
+    // then change Pending to Applied only after that transaction succeeds.
     Task<bool> TryChangeProposalStateAsync(
         Guid id,
         ChatProposalState expectedState,

@@ -104,6 +104,36 @@ public sealed class ProposalConfirmationTests
     }
 
     [Fact]
+    public async Task Confirmation_rejects_proposal_from_a_different_chat_area()
+    {
+        var store = new Store { AreaOverride = "tasks", Proposal = Proposal([Action("knowledge.document")]) };
+        var transactions = new RollbackRunner();
+        var service = new ProposalConfirmationService(store, transactions, new KnowledgeAccess(transactions.Writes), new EmptyPlanning(), new EmptyTasks());
+
+        var result = await service.ConfirmAsync(store.Proposal.Id, Guid.NewGuid());
+
+        Assert.False(result.Applied);
+        Assert.Contains("area", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(transactions.Writes);
+        Assert.Equal(ChatProposalState.Pending, store.Proposal.State);
+    }
+
+    [Fact]
+    public async Task Successful_confirmation_marks_proposal_applied_even_if_cancellation_arrives_after_commit()
+    {
+        var cancellation = new CancellationTokenSource();
+        var store = new Store { AreaOverride = "knowledge", Proposal = Proposal([Action("knowledge.document")]) };
+        var transactions = new CancelAfterCommitRunner(cancellation);
+        var service = new ProposalConfirmationService(store, transactions, new KnowledgeAccess(transactions.Writes), new EmptyPlanning(), new EmptyTasks());
+
+        var result = await service.ConfirmAsync(store.Proposal.Id, Guid.NewGuid(), cancellation.Token);
+
+        Assert.True(result.Applied);
+        Assert.Equal(ChatProposalState.Applied, store.Proposal.State);
+        Assert.Single(transactions.Writes);
+    }
+
+    [Fact]
     public async Task Root_inferred_document_preview_has_empty_body_and_deterministic_reason()
     {
         var calls = new Queue<ModelCompletion>([
@@ -290,7 +320,7 @@ public sealed class ProposalConfirmationTests
         [new ModelToolCall("prepare", "prepare_knowledge_document", arguments)]);
 
     private static AgentTurnRequest Request(string prompt) =>
-        new(Guid.NewGuid(), Guid.NewGuid(), prompt, new AgentScope("general", null, null, null),
+        new(Guid.NewGuid(), Guid.NewGuid(), prompt, new AgentScope("general", null, null, null, "knowledge"),
             "Gemma", PersonalDashboard.V2.Contracts.Chat.ChatModelRoute.Default, []);
 
     private static ModelCompletion ProposalCall(string after) => new(null,
@@ -461,7 +491,7 @@ public sealed class ProposalConfirmationTests
         var pendingId = store.Proposal.Id;
 
         await PersonalDashboard.V2.Agent.Api.ProposalDraftPersistence.PersistTurnAsync(
-            store, new RollbackRunner(), Turn(conversationId), null);
+            store, Turn(conversationId), null);
 
         Assert.Equal(ChatProposalState.Pending, store.Proposal!.State);
         Assert.Equal(pendingId, store.Proposal.Id);
@@ -480,7 +510,7 @@ public sealed class ProposalConfirmationTests
         var replacement = Proposal([Action("Revised")]) with { ConversationId = conversationId, TurnId = turn.Id };
 
         await PersonalDashboard.V2.Agent.Api.ProposalDraftPersistence.PersistTurnAsync(
-            store, new RollbackRunner(), turn, replacement);
+            store, turn, replacement);
 
         Assert.Equal(oldId, Assert.Single(store.DismissedProposals).Id);
         Assert.Equal(replacement.Id, Assert.Single(store.SavedProposals).Id);
@@ -526,13 +556,27 @@ public sealed class ProposalConfirmationTests
         }
     }
 
+    private sealed class CancelAfterCommitRunner(CancellationTokenSource cancellation) : ITransactionRunner
+    {
+        public List<Guid> Writes { get; } = [];
+        public Task ExecuteAsync(Func<CancellationToken, Task> operation, CancellationToken cancellationToken = default) =>
+            ExecuteAsync(async ct => { await operation(ct); return true; }, cancellationToken);
+        public async Task<TResult> ExecuteAsync<TResult>(Func<CancellationToken, Task<TResult>> operation, CancellationToken cancellationToken = default)
+        {
+            var result = await operation(cancellationToken);
+            cancellation.Cancel();
+            return result;
+        }
+    }
+
     private sealed class Store : IChatConversationStore
     {
         public ChatProposal? Proposal { get; set; }
+        public string? AreaOverride { get; init; }
         public List<ChatTurn> Turns { get; } = [];
         public List<ChatProposal> DismissedProposals { get; } = [];
         public List<ChatProposal> SavedProposals { get; } = [];
-        public Task<ChatConversationState?> GetConversationAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<ChatConversationState?>(null);
+        public Task<ChatConversationState?> GetConversationAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<ChatConversationState?>(new(id, null, DateTimeOffset.UtcNow, AreaOverride ?? (Proposal?.Actions.FirstOrDefault()?.EntityType.StartsWith("knowledge.", StringComparison.Ordinal) == true ? "knowledge" : "general")));
         public Task<ChatConversationState> CreateConversationAsync(Guid id, string? title, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<ChatConversationPage> ListConversationsAsync(string? cursor, int pageSize, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task DeleteConversationAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotImplementedException();

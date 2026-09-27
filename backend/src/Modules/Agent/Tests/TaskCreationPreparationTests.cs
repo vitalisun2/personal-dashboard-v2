@@ -193,7 +193,7 @@ public sealed class TaskCreationPreparationTests
         var requestType = typeof(AgentApiModule).GetNestedType("SendTurnRequest", BindingFlags.NonPublic)!;
         var request = Activator.CreateInstance(requestType, "Проверь статус", null, null)!;
         var task = (Task<IResult>)method.Invoke(null, [context, conversationId, request, store, agent,
-            new ImmediateTransactionRunner(), new EmptyIndexer(), services.GetRequiredService<ILoggerFactory>(),
+            new CatalogTasks(), services.GetRequiredService<ILoggerFactory>(),
             services.GetRequiredService<IOptions<Microsoft.AspNetCore.Http.Json.JsonOptions>>(), cancellationToken])!;
         var result = await task;
         await result.ExecuteAsync(context);
@@ -471,7 +471,7 @@ public sealed class TaskCreationPreparationTests
     private sealed class TestChatStore : IChatConversationStore
     {
         public List<ChatTurn> Turns { get; } = [];
-        public Task<ChatConversationState?> GetConversationAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<ChatConversationState?>(new(id, "Test", DateTimeOffset.UtcNow));
+        public Task<ChatConversationState?> GetConversationAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult<ChatConversationState?>(new(id, "Test", DateTimeOffset.UtcNow, "general"));
         public Task<ChatConversationState> CreateConversationAsync(Guid id, string? title, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<ChatConversationPage> ListConversationsAsync(string? cursor, int pageSize, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task DeleteConversationAsync(Guid id, CancellationToken cancellationToken = default) => throw new NotImplementedException();

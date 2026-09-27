@@ -128,6 +128,7 @@ public sealed record TaskMutationResult(bool Applied, TaskEntityState? Current, 
 public interface ITasksAgentAccess
 {
     Task<IReadOnlyList<TaskBacklogSection>> ListBacklogSectionsAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<Guid>> ListPlanningTaskIdsAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Guid>>([]);
     Task<TaskEntityState?> ReadAsync(
         TaskEntityKind kind,
         Guid id,

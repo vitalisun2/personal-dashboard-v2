@@ -64,7 +64,8 @@ public sealed record SearchRequest(
     DateTimeOffset? UpdatedBeforeUtc = null,
     string? Cursor = null,
     int? PageSize = null,
-    SearchMatchMode MatchMode = SearchMatchMode.Hybrid);
+    SearchMatchMode MatchMode = SearchMatchMode.Hybrid,
+    IReadOnlyList<Guid>? AllowedTaskIds = null);
 
 public sealed record SearchSourceReference(
     string Kind,

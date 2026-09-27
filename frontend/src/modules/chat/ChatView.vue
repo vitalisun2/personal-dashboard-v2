@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { chatApi, ProposalConflictError, type ChatEntityEntry, type ChatTurn, type ChatSource } from './chatApi'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { chatApi, ProposalConflictError, type ChatArea, type ChatEntityEntry, type ChatTurn, type ChatSource } from './chatApi'
 import './chatView.css'
 
-const props = defineProps<{ conversationId?: string; targetTurnId?: string; entity?: ChatEntityEntry }>()
+const props = defineProps<{ area: ChatArea; entity?: ChatEntityEntry }>()
 const emit = defineEmits<{ (event: 'back'): void }>()
-const route = useRoute()
 const router = useRouter()
 const turns = ref<ChatTurn[]>([])
 const activeId = ref<string>()
@@ -17,9 +16,10 @@ const optimisticTurns = ref<Array<{ id: number; message: string; progress: strin
 const scrollContainer = ref<HTMLElement | null>(null)
 const inputElement = ref<HTMLTextAreaElement | null>(null)
 let sendSequence = 0
-let loadSequence = 0
 let sendController: AbortController | undefined
 const activeSendId = ref<number | null>(null)
+let leavingChat = false
+let deleteSent = false
 
 function resizeInput() {
   const el = inputElement.value
@@ -32,36 +32,41 @@ async function scrollBottom() {
   await nextTick()
   if (scrollContainer.value) scrollContainer.value.scrollTop = scrollContainer.value.scrollHeight
 }
-watch(() => [props.conversationId, props.targetTurnId] as const, async ([id]) => {
-  const loadId = ++loadSequence
-  if (sendController) {
-    sendSequence++
-    sendController.abort()
-    sendController = undefined
-    activeSendId.value = null
-    busy.value = false
-  }
-  busy.value = false
-  activeId.value = id
-  turns.value = []
-  optimisticTurns.value = []
-  error.value = ''
-  if (!id) return
-  busy.value = true
-  try {
-    const conversation = await chatApi.get(id, props.targetTurnId)
-    if (loadSequence === loadId && activeId.value === id) { turns.value = conversation.turns; await scrollBottom() }
-  } catch (cause) {
-    if (loadSequence === loadId && activeId.value === id)
-      error.value = cause instanceof Error ? cause.message : 'Не удалось загрузить чат.'
-  } finally { if (loadSequence === loadId) busy.value = false }
-}, { immediate: true })
-
-onBeforeUnmount(() => {
+function leaveChat() {
+  if (deleteSent) return
+  deleteSent = true
+  leavingChat = true
   sendSequence++
-  loadSequence++
   sendController?.abort()
   sendController = undefined
+  activeSendId.value = null
+  busy.value = false
+  const conversationId = activeId.value
+  activeId.value = undefined
+  turns.value = []
+  optimisticTurns.value = []
+  input.value = ''
+  error.value = ''
+  if (conversationId) void chatApi.delete(conversationId, true).catch(() => {})
+}
+function resumeChat(event: PageTransitionEvent) {
+  if (!event.persisted) return
+  deleteSent = false
+  leavingChat = false
+  sendSequence++
+  sendController = undefined
+  activeSendId.value = null
+  activeId.value = undefined
+  busy.value = false
+}
+onMounted(() => {
+  window.addEventListener('pagehide', leaveChat)
+  window.addEventListener('pageshow', resumeChat)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('pagehide', leaveChat)
+  window.removeEventListener('pageshow', resumeChat)
+  leaveChat()
 })
 
 async function send() {
@@ -74,7 +79,7 @@ async function send() {
       id: `local-${failed.id}`,
       userMessage: failed.message,
       assistantMessage: '',
-      scope: { mode: 'general' },
+      scope: { mode: 'general', area: props.area },
       requestedModel: 'Gemma',
       actualModel: 'Gemma',
       createdAt: new Date().toISOString(),
@@ -97,14 +102,17 @@ async function send() {
   try {
     const created = !activeId.value
     if (created) {
-      const conversation = await chatApi.create(controller.signal)
-      if (!isCurrent()) return
+      const conversation = await chatApi.create(props.area)
+      if (!isCurrent() || leavingChat) {
+        void chatApi.delete(conversation.id, true).catch(() => {})
+        return
+      }
       activeId.value = conversation.id
     }
     const id = activeId.value!
     const scope = props.entity
-      ? { mode: 'entity' as const, entityType: props.entity.entityType, entityId: props.entity.entityId, entityVersion: props.entity.entityVersion }
-      : { mode: 'general' as const }
+      ? { mode: 'entity' as const, area: props.area, entityType: props.entity.entityType, entityId: props.entity.entityId, entityVersion: props.entity.entityVersion }
+      : { mode: 'general' as const, area: props.area }
     const result = await chatApi.sendWithProgress(id, message, scope, (text, turnId) => {
       if (!isCurrent()) return
       const optimistic = optimisticTurns.value.find(turn => turn.id === sendId)
@@ -119,12 +127,6 @@ async function send() {
     }
     turns.value.push(result.turn)
     optimisticTurns.value = optimisticTurns.value.filter(turn => turn.id !== sendId)
-    if (created) {
-      const query = { ...route.query }
-      query.conversationId = id
-      delete query.turnId
-      try { await router.replace({ query }) } catch { /* saved turn remains visible */ }
-    }
     await scrollBottom()
   } catch (cause) {
     if (!isCurrent() || controller.signal.aborted) return
@@ -169,17 +171,21 @@ async function newConversation() {
     activeSendId.value = null
     busy.value = false
   }
+  const previousId = activeId.value
   turns.value = []
   optimisticTurns.value = []
   activeId.value = undefined
   input.value = ''
   error.value = ''
-  const query = { ...route.query }
-  delete query.conversationId
-  delete query.turnId
-  await router.replace({ query })
+  if (previousId) await chatApi.delete(previousId).catch(() => {})
   await nextTick(resizeInput)
 }
+async function switchToGeneralChat() {
+  if (props.area === 'general') return
+  await newConversation()
+  await router.replace({ path: '/chat', query: { area: 'general', mode: 'general' } })
+}
+const areaLabel = computed(() => ({ knowledge: 'База знаний', tasks: 'Задачи', planning: 'Планирование', general: 'Общий чат' }[props.area]))
 async function actOnProposal(turn: ChatTurn, confirm: boolean) {
   if (!activeId.value || !turn.proposalId || busy.value) return
   busy.value = true
@@ -290,7 +296,9 @@ watch(input, () => { void nextTick(resizeInput) })
   <section class="chat-view" aria-label="Чат с агентом">
     <div class="chat-back-row">
       <button type="button" class="doc-action doc-back" @click="emit('back')">← Назад</button>
+      <div class="chat-area-label">{{ areaLabel }}</div>
       <div class="chat-back-actions">
+        <button v-if="area !== 'general'" type="button" class="chat-general-btn" @click="switchToGeneralChat">Общий чат</button>
         <button type="button" class="chat-new-btn" aria-label="Новый чат" title="Новый чат" @click="newConversation">＋</button>
       </div>
     </div>
@@ -298,7 +306,7 @@ watch(input, () => { void nextTick(resizeInput) })
       <div class="chat-list" aria-live="polite">
         <template v-for="turn in turns" :key="turn.id">
           <div class="chat-row user"><div class="chat-bubble">{{ turn.userMessage }}</div></div>
-          <div class="chat-row agent"><div class="chat-answer" :class="{ 'target-turn': turn.id === targetTurnId }">
+          <div class="chat-row agent"><div class="chat-answer">
             <div v-if="turn.assistantMessage && (!isShowResults(turn) || !turn.sourceDetails?.length)" class="chat-bubble">{{ turn.assistantMessage }}</div>
             <div v-if="turn.localFailure" class="chat-bubble chat-pending-failed">{{ turn.localFailure }}</div>
             <template v-if="isShowResults(turn)" v-for="group in [

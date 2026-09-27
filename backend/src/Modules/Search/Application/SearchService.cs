@@ -21,7 +21,7 @@ public sealed class SearchService(ISearchCandidateStore candidateStore) : ISearc
                 request.Context.ConversationId, request.Context.Mode, request.Context.EntityType,
                 request.Context.EntityId, request.Context.EntityVersion),
             request.UpdatedAfterUtc, request.UpdatedBeforeUtc, request.MatchMode == SearchMatchMode.Semantic,
-            request.MatchMode == SearchMatchMode.Lexical);
+            request.MatchMode == SearchMatchMode.Lexical, request.AllowedTaskIds);
 
         var candidateSet = await candidateStore.FindCandidatesAsync(criteria, request.Mode, cancellationToken);
         var ranked = HybridSearch.Rank(criteria, candidateSet.Candidates);
@@ -61,6 +61,7 @@ public sealed class SearchService(ISearchCandidateStore candidateStore) : ISearc
             query = request.Query.Trim(), mode = request.Mode,
             matchMode = request.MatchMode,
             kinds = request.Kinds?.Order(StringComparer.OrdinalIgnoreCase).ToArray(),
+            allowedTaskIds = request.AllowedTaskIds?.Order().ToArray(),
             context = request.Context, after = request.UpdatedAfterUtc, before = request.UpdatedBeforeUtc, pageSize
         });
         return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(material)))[..16];

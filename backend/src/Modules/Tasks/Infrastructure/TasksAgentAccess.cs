@@ -15,6 +15,9 @@ public sealed class TasksAgentAccess(TasksService service) : ITasksAgentAccess
         (await service.SectionsAsync(TaskLocation.Backlog, ct))
             .Select(section => new TaskBacklogSection(section.Id, section.Name, section.Version)).ToArray();
 
+    public async Task<IReadOnlyList<Guid>> ListPlanningTaskIdsAsync(CancellationToken ct = default) =>
+        (await service.ListAsync(null, ct)).Where(task => task.FeatureId is not null).Select(task => task.Id).ToArray();
+
     public async Task<TaskEntityState?> ReadAsync(TaskEntityKind kind, Guid id, CancellationToken ct = default)
     {
         if (kind == TaskEntityKind.Task)

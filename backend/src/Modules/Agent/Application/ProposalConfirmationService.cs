@@ -31,14 +31,33 @@ public sealed class ProposalConfirmationService(
             throw new ArgumentException("Proposal and confirmation IDs are required.");
         var proposal = await chats.GetProposalAsync(proposalId, cancellationToken);
         if (proposal is null) return new(false, false, false, false, "Proposal not found.", []);
+        try
+        {
+            return await chats.ExecuteConversationAsync(proposal.ConversationId,
+                ct => ConfirmLockedAsync(proposalId, confirmationId, ct), cancellationToken);
+        }
+        catch (KeyNotFoundException)
+        {
+            return new(false, false, false, false, "Chat session has ended. Prepare a new proposal.", []);
+        }
+    }
+
+    private async Task<ProposalConfirmationResult> ConfirmLockedAsync(Guid proposalId, Guid confirmationId, CancellationToken cancellationToken)
+    {
+        var proposal = await chats.GetProposalAsync(proposalId, cancellationToken);
+        if (proposal is null) return new(false, false, false, false, "Proposal not found.", []);
         if (proposal.State == ChatProposalState.Applied)
             return new(proposal.ConfirmationId == confirmationId, proposal.ConfirmationId == confirmationId, false, false,
                 proposal.ConfirmationId == confirmationId ? null : "Proposal was already confirmed with a different confirmation ID.", []);
         if (proposal.State != ChatProposalState.Pending)
             return new(false, false, false, false, "Proposal is no longer pending.", []);
+        var conversation = await chats.GetConversationAsync(proposal.ConversationId, cancellationToken);
+        if (conversation is null) return new(false, false, false, false, "Chat session has ended.", []);
         if (proposal.Actions.Count != 1 || proposal.Actions.Any(action =>
                 !string.Equals(action.Operation, nameof(ChangeOperation.Create), StringComparison.OrdinalIgnoreCase) || action.EntityType is not ("knowledge.document" or "tasks.task")))
             return new(false, false, false, false, "Only creating one new knowledge document or task is allowed.", []);
+        if (proposal.Actions.Any(action => !ProposalBelongsToArea(action, conversation.Area)))
+            return new(false, false, false, false, "The proposal does not belong to this chat area.", []);
         if (DateTimeOffset.UtcNow - proposal.CreatedAtUtc >= ProposalLifetime)
         {
             await chats.TryChangeProposalStateAsync(proposal.Id, ChatProposalState.Pending, ChatProposalState.Dismissed, null, cancellationToken);
@@ -47,16 +66,16 @@ public sealed class ProposalConfirmationService(
 
         try
         {
-            return await transactions.ExecuteAsync(async ct =>
+            var decision = await transactions.ExecuteAsync(async ct =>
             {
                 var current = await chats.GetProposalAsync(proposalId, ct);
-                if (current is null) return new ProposalConfirmationResult(false, false, false, false, "Proposal not found.", []);
+                if (current is null) return new ConfirmationTransactionResult(null, new(false, false, false, false, "Proposal not found.", []));
                 if (current.State == ChatProposalState.Applied)
                     return current.ConfirmationId == confirmationId
-                        ? new ProposalConfirmationResult(true, true, false, false, null, [])
-                        : new ProposalConfirmationResult(false, false, false, false, "Proposal was already confirmed with a different confirmation ID.", []);
+                        ? new ConfirmationTransactionResult(null, new(true, true, false, false, null, []))
+                        : new ConfirmationTransactionResult(null, new(false, false, false, false, "Proposal was already confirmed with a different confirmation ID.", []));
                 if (current.State != ChatProposalState.Pending)
-                    return new ProposalConfirmationResult(false, false, false, false, "Proposal is no longer pending.", []);
+                    return new ConfirmationTransactionResult(null, new(false, false, false, false, "Proposal is no longer pending.", []));
                 if (DateTimeOffset.UtcNow - current.CreatedAtUtc >= ProposalLifetime)
                     throw new ProposalConflictException("Proposal expired. Prepare a new preview.", null, isExpired: true);
 
@@ -72,10 +91,12 @@ public sealed class ProposalConfirmationService(
                     freshValues.Add(result.Current);
                     if (!result.Applied) throw new ProposalConflictException(result.ConflictReason ?? "An object changed after preview.", result.Current);
                 }
-                if (!await chats.TryChangeProposalStateAsync(proposalId, ChatProposalState.Pending, ChatProposalState.Applied, confirmationId, ct))
-                    throw new ProposalConflictException("Proposal state changed while confirming.", null);
-                return new ProposalConfirmationResult(true, false, false, false, null, freshValues);
+                return new ConfirmationTransactionResult(freshValues, null);
             }, cancellationToken);
+            if (decision.EarlyResult is not null) return decision.EarlyResult;
+            if (!await chats.TryChangeProposalStateAsync(proposalId, ChatProposalState.Pending, ChatProposalState.Applied, confirmationId, CancellationToken.None))
+                throw new ProposalConflictException("Proposal state changed while confirming.", null);
+            return new ProposalConfirmationResult(true, false, false, false, null, decision.FreshValues!);
         }
         catch (ProposalConflictException conflict)
         {
@@ -155,6 +176,22 @@ public sealed class ProposalConfirmationService(
         throw new InvalidDataException($"Unsupported entity type '{action.EntityType}'.");
     }
 
+    private static bool ProposalBelongsToArea(ChatProposedAction action, string area)
+    {
+        if (area == "general") return true;
+        if (area == "knowledge") return action.EntityType == "knowledge.document";
+        if (action.EntityType != "tasks.task") return false;
+        using var payload = JsonDocument.Parse(action.Payload.GetRawText());
+        var linked = PlanningLinkValue(payload.RootElement)?.FeatureId is not null;
+        var placement = StringValue(payload.RootElement, "placement");
+        return area switch
+        {
+            "tasks" => placement == "backlog",
+            "planning" => linked && placement is "planned" or "backlog",
+            _ => false
+        };
+    }
+
     private async Task ValidateTaskCreationTargetAsync(JsonElement payload, TaskMutation mutation, CancellationToken cancellationToken)
     {
         if (mutation.Planning?.FeatureId is { } featureId)
@@ -221,6 +258,7 @@ public sealed class ProposalConfirmationService(
     }
 
     private sealed record MutationResult(bool Applied, object? Current, string? ConflictReason);
+    private sealed record ConfirmationTransactionResult(IReadOnlyList<object?>? FreshValues, ProposalConfirmationResult? EarlyResult);
 
     private sealed class ProposalConflictException(string message, object? current, bool isExpired = false) : Exception(message)
     {

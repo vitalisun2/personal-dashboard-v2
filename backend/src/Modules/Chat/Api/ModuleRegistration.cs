@@ -12,10 +12,13 @@ public static class ChatApiModule
     public static IEndpointRouteBuilder MapChatApi(this IEndpointRouteBuilder endpoints)
     {
         var api = endpoints.MapGroup("/api/v2/chat/conversations");
-        api.MapPost("", async (IChatConversationStore store, CancellationToken cancellationToken) =>
+        api.MapPost("", async (CreateConversationRequest? request, IChatConversationStore store, CancellationToken cancellationToken) =>
         {
-            var conversation = await store.CreateConversationAsync(Guid.NewGuid(), null, cancellationToken);
-            return Results.Ok(new { id = conversation.Id, title = conversation.Title ?? "Новый чат", createdAt = conversation.CreatedAtUtc, updatedAt = conversation.CreatedAtUtc, messages = Array.Empty<object>(), turns = Array.Empty<object>() });
+            var area = request?.Area ?? "general";
+            if (area is not ("knowledge" or "tasks" or "planning" or "general"))
+                return Results.BadRequest(new { error = "Unknown chat area." });
+            var conversation = await store.CreateConversationAsync(Guid.NewGuid(), null, area, cancellationToken);
+            return Results.Ok(new { id = conversation.Id, title = conversation.Title ?? "Новый чат", area = conversation.Area, createdAt = conversation.CreatedAtUtc, updatedAt = conversation.CreatedAtUtc, messages = Array.Empty<object>(), turns = Array.Empty<object>() });
         });
         api.MapGet("", async (IChatConversationStore store, string? cursor, int? pageSize, CancellationToken cancellationToken) =>
         {
@@ -64,6 +67,7 @@ public static class ChatApiModule
         {
             id = conversation.Id,
             title = conversation.Title ?? "Новый чат",
+            area = conversation.Area,
             createdAt = conversation.CreatedAtUtc,
             updatedAt = updated,
             messages = Array.Empty<object>(),
@@ -86,6 +90,13 @@ public static class ChatApiModule
     private static async Task<IResult> DismissProposalAsync(Guid conversationId, Guid proposalId,
         IChatConversationStore store, CancellationToken cancellationToken)
     {
+        try { return await store.ExecuteConversationAsync(conversationId, ct => DismissProposalCoreAsync(conversationId, proposalId, store, ct), cancellationToken); }
+        catch (KeyNotFoundException) { return Results.NotFound(); }
+    }
+
+    private static async Task<IResult> DismissProposalCoreAsync(Guid conversationId, Guid proposalId,
+        IChatConversationStore store, CancellationToken cancellationToken)
+    {
         var proposal = await store.GetProposalAsync(proposalId, cancellationToken);
         if (proposal is null || proposal.ConversationId != conversationId) return Results.NotFound();
         if (proposal.State != ChatProposalState.Pending) return Results.NoContent();
@@ -98,7 +109,7 @@ public static class ChatApiModule
         id = turn.Id,
         userMessage = turn.UserText,
         assistantMessage = turn.AssistantText,
-        scope = new { mode = turn.Scope.Mode, entityType = turn.Scope.EntityType, entityId = turn.Scope.EntityId, entityVersion = turn.Scope.EntityVersion },
+        scope = new { mode = turn.Scope.Mode, area = turn.Scope.Area, entityType = turn.Scope.EntityType, entityId = turn.Scope.EntityId, entityVersion = turn.Scope.EntityVersion },
         requestedModel = turn.RequestedModel,
         actualModel = turn.ActualModel,
         modelRoute = turn.ModelRoute.ToString(),
@@ -127,4 +138,6 @@ public static class ChatApiModule
             };
         })
     };
+
+    private sealed record CreateConversationRequest(string? Area);
 }

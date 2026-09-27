@@ -10,8 +10,8 @@ using Microsoft.Extensions.Options;
 using PersonalDashboard.V2.Agent.Application;
 using PersonalDashboard.V2.Agent.Domain;
 using PersonalDashboard.V2.Contracts.Chat;
+using PersonalDashboard.V2.Contracts.AgentAccess;
 using PersonalDashboard.V2.Contracts.Search;
-using PersonalDashboard.V2.Contracts.Transactions;
 using System.Text.Json;
 
 namespace PersonalDashboard.V2.Agent.Api;
@@ -27,17 +27,41 @@ public static class AgentApiModule
     }
 
     private static async Task<IResult> SendTurnAsync(HttpContext httpContext, Guid conversationId, SendTurnRequest request,
-        IChatConversationStore chats, IAgentTurnService agent, ITransactionRunner transactions, ISearchIndexer search,
+        IChatConversationStore chats, IAgentTurnService agent, ITasksAgentAccess tasks,
+        ILoggerFactory loggerFactory, IOptions<JsonOptions> jsonOptions, CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await chats.ExecuteConversationAsync(conversationId, ct => SendTurnCoreAsync(httpContext, conversationId, request, chats, agent, tasks,
+                loggerFactory, jsonOptions, ct), cancellationToken);
+        }
+        catch (KeyNotFoundException)
+        {
+            return Results.NotFound(new { error = "Chat session has ended." });
+        }
+    }
+
+    private static async Task<IResult> SendTurnCoreAsync(HttpContext httpContext, Guid conversationId, SendTurnRequest request,
+        IChatConversationStore chats, IAgentTurnService agent, ITasksAgentAccess tasks,
         ILoggerFactory loggerFactory, IOptions<JsonOptions> jsonOptions, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(request.Message)) return Results.BadRequest(new { error = "Message is required." });
         const string requestedModel = "Gemma";
-        var scope = new AgentScope(request.Scope?.Mode ?? "general", request.Scope?.EntityType, request.Scope?.EntityId,
-            request.Scope?.EntityVersion);
-        if (scope.Mode is not ("general" or "entity")) return Results.BadRequest(new { error = "Scope mode must be general or entity." });
         var conversation = await chats.GetConversationAsync(conversationId, cancellationToken);
         if (conversation is null) return Results.NotFound();
-
+        if (request.Scope?.Area is { } requestedArea && requestedArea != conversation.Area)
+            return Results.BadRequest(new { error = "The chat area cannot be changed during a conversation." });
+        var scope = new AgentScope(request.Scope?.Mode ?? "general", request.Scope?.EntityType, request.Scope?.EntityId,
+            request.Scope?.EntityVersion, conversation.Area);
+        if (scope.Mode is not ("general" or "entity")) return Results.BadRequest(new { error = "Scope mode must be general or entity." });
+        if (scope.Mode == "entity" && (scope.EntityType is null || !ScopeKindAllowed(scope.EntityType, conversation.Area)))
+            return Results.BadRequest(new { error = "The focused entity does not belong to this chat area." });
+        if (scope.Mode == "entity" && conversation.Area == "planning" && scope.EntityType == "tasks.task")
+        {
+            var focusedTask = await tasks.ReadAsync(TaskEntityKind.Task, scope.EntityId!.Value, cancellationToken);
+            if (focusedTask?.Planning?.FeatureId is null)
+                return Results.BadRequest(new { error = "Only tasks linked to a planning feature can be focused in this chat." });
+        }
         var turns = await chats.GetRecentTurnsAsync(conversationId, 20, cancellationToken);
         var recent = turns.SelectMany(turn => new ModelMessage[]
         {
@@ -97,12 +121,12 @@ public static class AgentApiModule
 
         var now = DateTimeOffset.UtcNow;
         var turn = new ChatTurn(turnId, conversationId, request.Message.Trim(), result.Answer,
-            new ChatTurnScope(result.Scope.Mode, result.Scope.EntityType, result.Scope.EntityId, result.Scope.EntityVersion),
+            new ChatTurnScope(result.Scope.Mode, result.Scope.EntityType, result.Scope.EntityId, result.Scope.EntityVersion, result.Scope.Area),
             result.RequestedModel, result.ActualModel, result.ModelRoute, result.Sources, now, result.FallbackReason);
         ChatProposal? proposal = result.Proposal is null ? null : ToContract(result.Proposal);
         try
         {
-            await ProposalDraftPersistence.PersistTurnAsync(chats, transactions, turn, proposal, cancellationToken);
+            await ProposalDraftPersistence.PersistTurnAsync(chats, turn, proposal, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception error) when (stream && (streamStarted || httpContext.Response.HasStarted))
@@ -112,19 +136,6 @@ public static class AgentApiModule
             return Results.Empty;
         }
 
-        try
-        {
-            var body = $"User: {turn.UserText}\n\nAssistant: {FormatAssistantContext(turn)}";
-            var chatContext = new SearchChatContext(turn.ConversationId, turn.Id, turn.Scope.Mode, turn.Scope.EntityType, turn.Scope.EntityId, turn.Scope.EntityVersion);
-            await search.UpsertAsync(new SearchIndexSource("chat.turn", turn.Id, 1,
-                string.IsNullOrWhiteSpace(conversation.Title) ? ShortTitle(turn.UserText) : conversation.Title!, body, null,
-                $"/chat?conversationId={conversationId:D}&turnId={turnId:D}", turn.CreatedAtUtc, chatContext), cancellationToken);
-        }
-        catch (Exception error) when (error is not OperationCanceledException)
-        {
-            loggerFactory.CreateLogger("PersonalDashboard.V2.Agent.SearchIndex").LogWarning(error,
-                "Search indexing failed for completed chat turn {TurnId}; the stored chat turn remains available for feed rebuild.", turn.Id);
-        }
         var view = ToTurnView(turn, proposal);
         if (stream)
         {
@@ -174,7 +185,7 @@ public static class AgentApiModule
         id = turn.Id,
         userMessage = turn.UserText,
         assistantMessage = turn.AssistantText,
-        scope = new { mode = turn.Scope.Mode, entityType = turn.Scope.EntityType, entityId = turn.Scope.EntityId, entityVersion = turn.Scope.EntityVersion },
+        scope = new { mode = turn.Scope.Mode, area = turn.Scope.Area, entityType = turn.Scope.EntityType, entityId = turn.Scope.EntityId, entityVersion = turn.Scope.EntityVersion },
         requestedModel = turn.RequestedModel,
         actualModel = turn.ActualModel,
         modelRoute = turn.ModelRoute.ToString(),
@@ -222,5 +233,14 @@ public static class AgentApiModule
     private static string ShortTitle(string text) => text.Length <= 72 ? text : text[..69] + "...";
 
     private sealed record SendTurnRequest(string Message, ScopeRequest? Scope, string? RequestedModel = null);
-    private sealed record ScopeRequest(string Mode, string? EntityType, Guid? EntityId, long? EntityVersion);
+    private static bool ScopeKindAllowed(string kind, string area) => area switch
+    {
+        "knowledge" => kind is "knowledge.document" or "knowledge.section",
+        "tasks" => kind is "tasks.task" or "tasks.section",
+        "planning" => kind is "planning.project" or "planning.milestone" or "planning.feature" or "tasks.task",
+        "general" => kind is "knowledge.document" or "knowledge.section" or "planning.project" or "planning.milestone" or "planning.feature" or "tasks.task" or "tasks.section",
+        _ => false
+    };
+
+    private sealed record ScopeRequest(string Mode, string? EntityType, Guid? EntityId, long? EntityVersion, string? Area = null);
 }

@@ -1,7 +1,10 @@
+import type { ChatArea } from '../../shared/chatRoute'
+export type { ChatArea } from '../../shared/chatRoute'
+
 export type ChatModel = 'Gemma'
 export type ChatScope =
-  | { mode: 'general' }
-  | { mode: 'entity'; entityType: string; entityId: string; entityVersion: number }
+  | { mode: 'general'; area: ChatArea }
+  | { mode: 'entity'; area: ChatArea; entityType: string; entityId: string; entityVersion: number }
 
 export interface ChatEntityEntry {
   entityType: string
@@ -65,6 +68,7 @@ export interface ChatProposedChange {
 export interface ChatConversation {
   id: string
   title: string
+  area: ChatArea
   createdAt: string
   updatedAt: string
   messages: ChatMessage[]
@@ -211,8 +215,8 @@ export const chatApi = {
   list: (cursor?: string | null) => request<ChatHistoryPage>(`/api/v2/chat/conversations${cursor ? `?cursor=${encodeURIComponent(cursor)}` : ''}`),
   get: (id: string, turnId?: string) => request<ChatConversation>(`/api/v2/chat/conversations/${encodeURIComponent(id)}${turnId ? `?turnId=${encodeURIComponent(turnId)}` : ''}`),
   olderTurns: (id: string, cursor: string) => request<{ turns: ChatTurn[]; nextCursor: string | null }>(`/api/v2/chat/conversations/${encodeURIComponent(id)}/turns?cursor=${encodeURIComponent(cursor)}`),
-  create: (signal?: AbortSignal) => request<ChatConversation>('/api/v2/chat/conversations', { method: 'POST', body: '{}', signal }),
-  delete: (id: string) => request<void>(`/api/v2/chat/conversations/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  create: (area: ChatArea) => request<ChatConversation>('/api/v2/chat/conversations', { method: 'POST', body: JSON.stringify({ area }) }),
+  delete: (id: string, keepalive = false) => request<void>(`/api/v2/chat/conversations/${encodeURIComponent(id)}`, { method: 'DELETE', keepalive }),
   send: (id: string, message: string, scope: ChatScope) =>
     request<ChatSendResult>(`/api/v2/agent/conversations/${encodeURIComponent(id)}/turns`, {
       method: 'POST', body: JSON.stringify({ message, scope, requestedModel: 'Gemma' }),

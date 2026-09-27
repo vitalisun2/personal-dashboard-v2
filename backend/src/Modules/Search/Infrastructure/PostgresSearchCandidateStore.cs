@@ -123,6 +123,7 @@ internal sealed class PostgresSearchCandidateStore(
                AND (cardinality(@kinds) = 0 OR source.kind = ANY(@kinds))
                AND (CAST(@after AS timestamptz) IS NULL OR source.updated_at_utc >= CAST(@after AS timestamptz))
                AND (CAST(@before AS timestamptz) IS NULL OR source.updated_at_utc <= CAST(@before AS timestamptz))
+               AND (CAST(@allowed_task_ids AS uuid[]) IS NULL OR source.kind <> 'tasks.task' OR source.id = ANY(CAST(@allowed_task_ids AS uuid[])))
                AND (source.kind <> 'chat.turn' OR (
                     (CAST(@conversation AS uuid) IS NULL OR source.chat_conversation_id = CAST(@conversation AS uuid))
                 AND (CAST(@mode AS text) IS NULL OR source.chat_mode = CAST(@mode AS text))
@@ -142,6 +143,7 @@ internal sealed class PostgresSearchCandidateStore(
         Add(command, "kinds", criteria.Kinds?.ToArray() ?? []);
         Add(command, "after", criteria.UpdatedAfterUtc);
         Add(command, "before", criteria.UpdatedBeforeUtc);
+        Add(command, "allowed_task_ids", criteria.AllowedTaskIds?.ToArray());
         Add(command, "conversation", criteria.Context?.ConversationId);
         Add(command, "mode", criteria.Context?.Mode);
         Add(command, "entity_type", criteria.Context?.EntityType);

@@ -13,6 +13,14 @@ const navigation = [
 const currentSection = computed(() => String(route.path.split('/')[1] || 'knowledge'))
 const titles: Record<string, string> = { knowledge: 'База знаний', planning: 'Планирование', tasks: 'Задачи', chat: 'Агент', search: 'Поиск', testing: 'Тестирование' }
 const title = computed(() => titles[currentSection.value] || 'База знаний')
+const chatArea = computed(() => {
+  const section = currentSection.value
+  if (section === 'chat') {
+    const area = route.query.area
+    return ['knowledge', 'tasks', 'planning', 'general'].includes(String(area)) ? area : 'general'
+  }
+  return ['knowledge', 'tasks', 'planning'].includes(section) ? section : 'general'
+})
 const hideBottomNav = computed(() => currentSection.value === 'chat')
 const syncStatus = ref<SyncStatus>('ready')
 let unsubscribeSyncStatus: (() => void) | undefined
@@ -95,7 +103,7 @@ onUnmounted(() => {
             <div class="eyebrow">Personal OS</div>
             <h1 class="heading">{{ title }}</h1>
           </div>
-          <RouterLink class="chat-head-btn" to="/chat" aria-label="Открыть чат с агентом" title="Чат с агентом">
+          <RouterLink class="chat-head-btn" :to="{ path: '/chat', query: { area: chatArea } }" aria-label="Открыть чат с агентом" title="Чат с агентом">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17.2 4 20v-4.9A7.4 7.4 0 0 1 3 11.4C3 7.3 6.8 4 11.5 4S20 7.3 20 11.4s-3.8 7.4-8.5 7.4c-1.6 0-3.1-.4-4.3-1.1Z"/><path d="m16.9 2.7.45 1.15 1.15.45-1.15.45-.45 1.15-.45-1.15-1.15-.45 1.15-.45.45-1.15Z"/></svg>
           </RouterLink>
           <span class="sync-status" :data-status="syncStatus" aria-live="polite">{{ syncStatus }}</span>

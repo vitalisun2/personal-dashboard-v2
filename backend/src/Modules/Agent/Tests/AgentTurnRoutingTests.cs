@@ -53,6 +53,52 @@ public sealed class AgentTurnRoutingTests
     }
 
     [Fact]
+    public async Task Scoped_search_overrides_forged_sections_and_limits_planning_tasks_to_linked_features()
+    {
+        var forgedKnowledge = new ScriptedModel(
+            Call("search_app", """{"query":"q","sections":["tasks"],"responseMode":"show"}"""),
+            new ModelCompletion("No matches.", []));
+        var knowledgeSearch = new RecordingSearch();
+        await Service(forgedKnowledge, knowledgeSearch).RespondAsync(Request("q", area: "knowledge"));
+        Assert.All(knowledgeSearch.Requests, request => Assert.Equal(new[] { "knowledge.document", "knowledge.section" }, request.Kinds));
+        Assert.DoesNotContain("sections", System.Text.Json.JsonDocument.Parse(
+            forgedKnowledge.Requests[0].Tools.Single(tool => tool.Name == "search_app").JsonSchema).RootElement.GetProperty("properties").EnumerateObject().Select(property => property.Name));
+
+        var allowedTaskId = Guid.NewGuid();
+        var forgedPlanning = new ScriptedModel(
+            Call("search_app", """{"query":"q","sections":["knowledge"],"responseMode":"show"}"""),
+            new ModelCompletion("No matches.", []));
+        var planningSearch = new RecordingSearch();
+        await Service(forgedPlanning, planningSearch, tasks: new PlanningTasks([allowedTaskId])).RespondAsync(Request("q", area: "planning"));
+        Assert.All(planningSearch.Requests, request =>
+        {
+            Assert.Equal(new[] { "planning.project", "planning.milestone", "planning.feature", "tasks.task" }, request.Kinds);
+            Assert.Equal([allowedTaskId], request.AllowedTaskIds);
+        });
+    }
+
+    [Fact]
+    public async Task Scoped_read_and_prepare_calls_cannot_escape_knowledge_area_or_read_unlinked_planning_tasks()
+    {
+        var taskAccess = new PlanningTasks([], new TaskEntityState(TaskEntityKind.Task, Guid.NewGuid(), 2,
+            "Standalone", "", null, "backlog", "new", Guid.NewGuid(), null, 0));
+        var foreignRead = new ScriptedModel(
+            Call("read_current", """{"entityType":"tasks.task","entityId":"11111111-1111-1111-1111-111111111111"}"""),
+            new ModelCompletion("I cannot read that source.", []));
+        await Service(foreignRead, new RecordingSearch(), tasks: taskAccess).RespondAsync(Request("q", area: "knowledge"));
+        Assert.Empty(taskAccess.Reads);
+        Assert.Contains("Read rejected", foreignRead.Requests[1].Messages.Last().Content);
+
+        var focused = Request("q", area: "planning") with
+        {
+            Scope = new AgentScope("entity", "tasks.task", taskAccess.Focus!.Id, taskAccess.Focus.Version, "planning")
+        };
+        var focusedModel = new ScriptedModel(new ModelCompletion("Should not run.", []));
+        await Assert.ThrowsAsync<ArgumentException>(() => Service(focusedModel, new RecordingSearch(), tasks: taskAccess).RespondAsync(focused));
+        Assert.Empty(focusedModel.Requests);
+    }
+
+    [Fact]
     public async Task Show_search_keeps_direct_order_and_deduplicates_a_source_in_favor_of_direct_match()
     {
         var directFirst = Source("Direct first");
@@ -215,8 +261,8 @@ public sealed class AgentTurnRoutingTests
     }
 
     private static AgentTurnRequest Request(string prompt, IReadOnlyList<ModelMessage>? recent = null,
-        IReadOnlyList<SearchSourceReference>? sources = null) =>
-        new(Guid.NewGuid(), Guid.NewGuid(), prompt, new AgentScope("general", null, null, null),
+        IReadOnlyList<SearchSourceReference>? sources = null, string area = "general") =>
+        new(Guid.NewGuid(), Guid.NewGuid(), prompt, new AgentScope("general", null, null, null, area),
         "Gemma", ChatModelRoute.Default, recent ?? [], sources);
 
     private static SearchSourceReference Source(string title) => Document with
@@ -236,8 +282,9 @@ public sealed class AgentTurnRoutingTests
     private static ModelCompletion Call(string name, string arguments) =>
         new(null, [new ModelToolCall(Guid.NewGuid().ToString("N"), name, arguments)]);
 
-    private static AgentTurnService Service(ScriptedModel model, ISearchService search, KnowledgeAccess? access = null) =>
-        new(model, search, access ?? new KnowledgeAccess(), new EmptyPlanning(), new EmptyTasks());
+    private static AgentTurnService Service(ScriptedModel model, ISearchService search, KnowledgeAccess? access = null,
+        ITasksAgentAccess? tasks = null) =>
+        new(model, search, access ?? new KnowledgeAccess(), new EmptyPlanning(), tasks ?? new EmptyTasks());
 
     private sealed class ScriptedModel(params ModelCompletion[] completions) : IChatModelRouter
     {
@@ -301,9 +348,24 @@ public sealed class AgentTurnRoutingTests
     private sealed class EmptyTasks : ITasksAgentAccess
     {
         public Task<IReadOnlyList<TaskBacklogSection>> ListBacklogSectionsAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskBacklogSection>>([]);
+        public Task<IReadOnlyList<Guid>> ListPlanningTaskIdsAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<Guid>>([]);
         public Task<TaskEntityState?> ReadAsync(TaskEntityKind kind, Guid id, CancellationToken cancellationToken = default) =>
             throw new NotImplementedException();
         public Task<TaskMutationResult> ApplyAsync(TaskMutation mutation, CancellationToken cancellationToken = default) =>
             throw new NotImplementedException();
+    }
+
+    private sealed class PlanningTasks(IReadOnlyList<Guid> allowedIds, TaskEntityState? focus = null) : ITasksAgentAccess
+    {
+        public TaskEntityState? Focus { get; } = focus;
+        public List<Guid> Reads { get; } = [];
+        public Task<IReadOnlyList<TaskBacklogSection>> ListBacklogSectionsAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskBacklogSection>>([]);
+        public Task<IReadOnlyList<Guid>> ListPlanningTaskIdsAsync(CancellationToken cancellationToken = default) => Task.FromResult(allowedIds);
+        public Task<TaskEntityState?> ReadAsync(TaskEntityKind kind, Guid id, CancellationToken cancellationToken = default)
+        {
+            Reads.Add(id);
+            return Task.FromResult(Focus?.Id == id ? Focus : null);
+        }
+        public Task<TaskMutationResult> ApplyAsync(TaskMutation mutation, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     }
 }

@@ -105,6 +105,49 @@ public sealed class TaskCreationGemmaEvaluation
         Assert.True(failures.Count == 0, string.Join("\n", failures));
     }
 
+    [GemmaFact]
+    public async Task Real_Gemma_respects_chat_area_for_creation_and_clarification()
+    {
+        var examples = new[]
+        {
+            (Area: "knowledge", Prompt: "Создай документ с названием «Заметки о поездке».", Title: "Заметки о поездке", Placement: (string?)null),
+            (Area: "tasks", Prompt: "Добавь задачу «Позвонить в сервис».", Title: "Позвонить в сервис", Placement: (string?)"backlog"),
+            (Area: "planning", Prompt: "Добавь задачу «Проверить пароль» в фичу «Авторизация».", Title: "Проверить пароль", Placement: (string?)"planned"),
+            (Area: "planning", Prompt: "Добавь задачу «Позвонить в сервис».", Title: (string?)null, Placement: (string?)null),
+        };
+        var failures = new List<string>();
+        foreach (var example in examples)
+        {
+            Console.WriteLine($"SCOPED CASE: {example.Area}: {example.Prompt}");
+            try
+            {
+                var result = await Service([Auth]).RespondAsync(new(Guid.NewGuid(), Guid.NewGuid(), example.Prompt,
+                    new("general", null, null, null, example.Area), "Gemma", ChatModelRoute.Default, []));
+                if (example.Title is null)
+                {
+                    Assert.Null(result.Proposal);
+                    Assert.Contains("фич", result.Answer, StringComparison.OrdinalIgnoreCase);
+                    continue;
+                }
+                Assert.True(result.Proposal is not null, result.Answer);
+                var change = Assert.Single(result.Proposal!.Changes);
+                Assert.Equal(example.Area == "knowledge" ? "knowledge.document" : "tasks.task", change.Target.EntityType);
+                using var json = JsonDocument.Parse(change.AfterJson);
+                Assert.Equal(example.Title, Text(json.RootElement, "title"));
+                Assert.Equal("", Text(json.RootElement, example.Area == "knowledge" ? "markdown" : "description"));
+                if (example.Placement is not null)
+                    Assert.Equal(example.Placement, Text(json.RootElement, "placement"));
+                if (example.Area == "planning")
+                    Assert.Equal(Auth.FeatureId.ToString(), Text(json.RootElement.GetProperty("planning"), "featureId"));
+            }
+            catch (Exception error)
+            {
+                failures.Add($"{example.Area}: {example.Prompt} — {error.Message}");
+            }
+        }
+        Assert.True(failures.Count == 0, string.Join("\n", failures));
+    }
+
     private static string? Text(JsonElement value, string key) => value.TryGetProperty(key, out var property) && property.ValueKind == JsonValueKind.String ? property.GetString() : null;
     private sealed record Case(string Name, string Prompt, string? Title, string? Destination, Guid? Section = null, Guid? Feature = null,
         bool Focus = false, bool Duplicate = false, IReadOnlyList<ModelMessage>? History = null, string? Body = null);

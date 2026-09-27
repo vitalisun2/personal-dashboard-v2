@@ -180,6 +180,67 @@ public sealed class SearchCatchUpIntegrationTests
     }
 
     [PgFact]
+    public async Task AllowedTaskIdsFilterTaskHitsButKeepPlanningAndBindCursorsToTheAllowList()
+    {
+        var marker = $"scopegate{Guid.NewGuid():N}";
+        var allowedTaskId = Guid.NewGuid();
+        var deniedTaskId = Guid.NewGuid();
+        var featureId = Guid.NewGuid();
+        var sources = new[]
+        {
+            new SearchIndexSource("tasks.task", allowedTaskId, 1, "Allowed task", marker,
+                "/test/allowed-task", "/test/allowed-task", DateTimeOffset.UtcNow),
+            new SearchIndexSource("tasks.task", deniedTaskId, 1, "Denied task", marker,
+                "/test/denied-task", "/test/denied-task", DateTimeOffset.UtcNow),
+            new SearchIndexSource("planning.feature", featureId, 1, "Planning feature", marker,
+                "/test/feature", "/test/feature", DateTimeOffset.UtcNow)
+        };
+        await using var provider = SemanticProvider("baseline", false, new ConcurrentQueue<string>());
+        await InitializeSearchSchemaAsync(provider);
+        var indexer = provider.GetRequiredService<ISearchIndexer>();
+        var search = provider.GetRequiredService<ISearchService>();
+
+        try
+        {
+            foreach (var source in sources) await indexer.UpsertAsync(source);
+
+            var allowedRequest = new SearchRequest(marker, SearchCoverageMode.Exhaustive,
+                ["tasks.task", "planning.feature"], PageSize: 1,
+                MatchMode: SearchMatchMode.Lexical, AllowedTaskIds: [allowedTaskId]);
+            var firstPage = await search.SearchAsync(allowedRequest);
+            Assert.NotNull(firstPage.NextCursor);
+            var secondPage = await search.SearchAsync(allowedRequest with { Cursor = firstPage.NextCursor });
+            var allowedHits = firstPage.Hits.Concat(secondPage.Hits).ToArray();
+            Assert.Null(secondPage.NextCursor);
+            Assert.Equal(new[] { ("planning.feature", featureId), ("tasks.task", allowedTaskId) },
+                allowedHits.Select(hit => (hit.Source.Kind, hit.Source.Id)).OrderBy(hit => hit.Kind).ToArray());
+
+            var noAllowedTasks = await search.SearchAsync(allowedRequest with
+            {
+                Cursor = null,
+                PageSize = 20,
+                AllowedTaskIds = []
+            });
+            var planningHit = Assert.Single(noAllowedTasks.Hits);
+            Assert.Equal("planning.feature", planningHit.Source.Kind);
+            Assert.Equal(featureId, planningHit.Source.Id);
+
+            await Assert.ThrowsAsync<ArgumentException>(async () =>
+            {
+                await search.SearchAsync(allowedRequest with
+                {
+                    Cursor = firstPage.NextCursor,
+                    AllowedTaskIds = [deniedTaskId]
+                });
+            });
+        }
+        finally
+        {
+            foreach (var source in sources) await indexer.DeleteAsync(source.Kind, source.Id, source.Version);
+        }
+    }
+
+    [PgFact]
     public async Task FailedFeedPassKeepsCursorThenReconcilesAndVersionedTombstoneBlocksResurrection()
     {
         var connectionString = TestConnection();
