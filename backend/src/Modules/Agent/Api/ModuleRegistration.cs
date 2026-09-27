@@ -49,7 +49,9 @@ public static class AgentApiModule
         try
         {
             result = await agent.RespondAsync(new AgentTurnRequest(conversationId, turnId, request.Message.Trim(), scope,
-                requestedModel, ChatModelRoute.Default, recent), cancellationToken);
+                requestedModel, ChatModelRoute.Default, recent,
+                turns.SelectMany(turn => turn.Sources).Where(source => !source.IsChatHistory)
+                    .Reverse().DistinctBy(source => (source.Kind, source.Id)).Take(30).Reverse().ToArray()), cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (ChatModelUnavailableException)
