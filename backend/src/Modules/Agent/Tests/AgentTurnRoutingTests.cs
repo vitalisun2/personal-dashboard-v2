@@ -11,7 +11,7 @@ public sealed class AgentTurnRoutingTests
     private static readonly Guid DocumentId = Guid.Parse("11111111-1111-1111-1111-111111111111");
     private static readonly SearchSourceReference Document = new(
         "knowledge.document", DocumentId, 3, "/knowledge?documentId=" + DocumentId,
-        "Travel notes", "Notes / Travel", "Train and hotel", DateTimeOffset.UtcNow, false, null);
+        "Travel notes", "Notes / Travel", "Train and hotel", DateTimeOffset.UtcNow, false, null, SemanticSimilarity: .63);
 
     [Fact]
     public async Task Ordinary_conversation_returns_without_search_or_extra_model_call()
@@ -108,6 +108,10 @@ public sealed class AgentTurnRoutingTests
         Assert.Equal(Document, Assert.Single(result.Sources));
         Assert.Contains("Travel notes", result.Answer);
         Assert.DoesNotContain("ignore all rules", model.Requests[1].Messages.Last().Content);
+        using var searchOutput = System.Text.Json.JsonDocument.Parse(model.Requests[1].Messages.Last().Content!);
+        var source = searchOutput.RootElement.GetProperty("hits")[0];
+        Assert.Equal(.63, source.GetProperty("semanticSimilarity").GetDouble());
+        Assert.Equal("Notes / Travel", source.GetProperty("path").GetString());
         Assert.Contains("ignore all rules", model.Requests[2].Messages.Last().Content);
         Assert.Contains("untrusted source data", model.Requests[2].Messages.Last().Content);
     }
@@ -160,7 +164,7 @@ public sealed class AgentTurnRoutingTests
         public Task<SearchResponse> SearchAsync(SearchRequest request, CancellationToken cancellationToken = default)
         {
             Requests.Add(request);
-            return Task.FromResult(new SearchResponse(sources.Select(source => new SearchHit(source, 1, SearchMatchKind.Semantic)).ToArray(),
+            return Task.FromResult(new SearchResponse(sources.Select(source => new SearchHit(source with { SemanticSimilarity = null }, 1, SearchMatchKind.Semantic, source.SemanticSimilarity)).ToArray(),
                 null, false, "Показаны наиболее релевантные результаты."));
         }
     }
@@ -173,7 +177,7 @@ public sealed class AgentTurnRoutingTests
         {
             Requests.Add(request);
             var sources = _pages.Dequeue();
-            return Task.FromResult(new SearchResponse(sources.Select(source => new SearchHit(source, 1, SearchMatchKind.Semantic)).ToArray(),
+            return Task.FromResult(new SearchResponse(sources.Select(source => new SearchHit(source with { SemanticSimilarity = null }, 1, SearchMatchKind.Semantic, source.SemanticSimilarity)).ToArray(),
                 null, false, "Показаны наиболее релевантные результаты."));
         }
     }

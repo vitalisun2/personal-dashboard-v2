@@ -76,7 +76,8 @@ public sealed record SearchSourceReference(
     DateTimeOffset UpdatedAtUtc,
     bool IsChatHistory,
     SearchChatContext? ChatContext,
-    SearchTextRange? Highlight = null);
+    SearchTextRange? Highlight = null,
+    double? SemanticSimilarity = null);
 
 public sealed record SearchTextRange(int Start, int Length);
 

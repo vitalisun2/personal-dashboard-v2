@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { chatApi, ProposalConflictError, type ChatEntityEntry, type ChatTurn } from './chatApi'
+import { chatApi, ProposalConflictError, type ChatEntityEntry, type ChatTurn, type ChatSource } from './chatApi'
 import './chatView.css'
 
 const props = defineProps<{ conversationId?: string; targetTurnId?: string; entity?: ChatEntityEntry }>()
@@ -97,6 +97,17 @@ async function actOnProposal(turn: ChatTurn, confirm: boolean) {
 function sourceUrl(url: string | null | undefined): string | undefined {
   return url?.startsWith('/') && !url.startsWith('//') ? url : undefined
 }
+function sourcePath(source: ChatSource): string {
+  const module = source.kind?.split('.')[0]
+  const section = module === 'knowledge' ? 'База знаний'
+    : module === 'tasks' ? 'Задачи' : module === 'planning' ? 'Планирование' : ''
+  return [section, source.path?.trim()].filter(Boolean).join(' / ')
+}
+function sourceProximity(source: ChatSource): string | null {
+  const score = source.semanticSimilarity
+  return typeof score === 'number' && Number.isFinite(score)
+    ? Math.max(0, Math.min(1, score)).toFixed(2).replace('.', ',') : null
+}
 function onInputKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter' && !event.shiftKey) { event.preventDefault(); void send() }
 }
@@ -118,10 +129,15 @@ watch(input, () => { void nextTick(resizeInput) })
           <div class="chat-row agent"><div class="chat-answer" :class="{ 'target-turn': turn.id === targetTurnId }">
             <div class="chat-bubble">{{ turn.assistantMessage }}</div>
             <div v-if="turn.sourceDetails?.length" class="source-list">
-              <template v-for="(source, index) in turn.sourceDetails" :key="index">
+              <div v-for="(source, index) in turn.sourceDetails" :key="index" class="chat-source">
                 <a v-if="sourceUrl(source.url)" :href="sourceUrl(source.url)">{{ source.title }}</a>
                 <span v-else>{{ source.title }}</span>
-              </template>
+                <span v-if="sourcePath(source)" class="chat-source-path">{{ sourcePath(source) }}</span>
+                <span v-if="sourceProximity(source) !== null" class="chat-source-proximity"
+                  title="Сходство по смыслу с поисковым запросом Gemma, не вероятность правильного ответа">
+                  Близость: {{ sourceProximity(source) }}
+                </span>
+              </div>
             </div>
             <div v-if="turn.proposalId && turn.changes?.length" class="proposal-card">
               <div class="proposal-heading">Предложение · {{ turn.proposalStatus === 'Pending' ? 'ожидает подтверждения' : turn.proposalStatus }}</div>

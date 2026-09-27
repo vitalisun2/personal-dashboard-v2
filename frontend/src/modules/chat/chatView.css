@@ -20,8 +20,10 @@
 .turn-meta{display:flex;width:100%;justify-content:space-between;gap:12px;margin:5px 2px 0;color:#8395a7;font-size:10px}
 .turn-meta span:last-child{text-align:right}
 .route-note{margin:4px 2px 0;color:#8797a6;font-size:11px}
-.source-list{display:flex;flex-wrap:wrap;gap:4px 8px;margin:6px 2px 0;color:#92aabc;font-size:12px}
+.source-list{display:flex;flex-direction:column;gap:10px;margin:6px 2px 0;color:#92aabc;font-size:12px;max-width:100%}
 .source-list a{color:#9fc6f2;text-decoration:underline}
+.chat-source{display:flex;flex-direction:column;gap:3px;overflow-wrap:anywhere}
+.chat-source-path,.chat-source-proximity{font-size:11px;color:#92aabc;line-height:1.4}
 .load-older{display:block;min-height:38px;margin:4px auto 12px;padding:0 12px;border:1px solid #2b3c4a;border-radius:11px;background:#18242f;color:#c8d3df;font-size:13px;font-weight:650}
 .load-older:disabled{opacity:.5}
 .chat-state{margin:8px 0;color:#8797a6;font-size:13px}

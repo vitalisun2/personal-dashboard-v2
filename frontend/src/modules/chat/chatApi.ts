@@ -32,10 +32,19 @@ export interface ChatTurn {
   modelRoute?: 'Default' | 'ManualSelection' | 'AutomaticFallback'
   createdAt: string
   sourceReferences: string[]
-  sourceDetails?: { title: string; url: string | null; snippet: string }[]
+  sourceDetails?: ChatSource[]
   proposalId?: string | null
   proposalStatus?: 'Pending' | 'Applied' | 'Dismissed' | null
   changes?: ChatProposedChange[]
+}
+
+export interface ChatSource {
+  kind?: string
+  title: string
+  path?: string | null
+  url: string | null
+  snippet: string
+  semanticSimilarity?: number | null
 }
 
 export interface ChatProposedChange {
