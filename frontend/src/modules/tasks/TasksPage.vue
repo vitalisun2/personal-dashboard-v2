@@ -844,7 +844,7 @@ onBeforeUnmount(() => {
       <div class="task-detail-bottom-actions">
         <button type="button" class="task-detail-pill action-move" @click="detailMove">{{ detailMoveLabel }}</button>
         <button v-if="isToday(state.detail)" type="button" class="task-detail-pill action-status" :class="workState(state.detail.workStatus)" @click="advanceTask(state.detail)">{{ workLabel(state.detail.workStatus) }}</button>
-        <button v-if="!isArchived(state.detail)" type="button" class="task-detail-pill action-move" @click="archiveTask(state.detail)">В архив</button>
+        <button v-if="!isArchived(state.detail)" type="button" class="task-detail-pill action-move action-archive" @click="archiveTask(state.detail)">В архив</button>
         <button v-else type="button" class="task-delete-icon" aria-label="Удалить задачу навсегда" @click="deleteArchivedTask(state.detail)">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 13h10l1-13"/><path d="M10 11v5M14 11v5"/></svg>
         </button>
