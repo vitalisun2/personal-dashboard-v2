@@ -674,7 +674,7 @@ onBeforeUnmount(onUnmountedCleanup)
       <button class="plus" type="button" aria-label="Добавить проект" @click="startCreate('project')">＋</button>
     </div>
 
-    <div v-if="state.busy" class="planning-empty">Загружаем план…</div>
+    <div v-if="state.busy && !project" class="planning-empty">Загружаем план…</div>
     <div v-else-if="!project" class="planning-empty">Создайте проект, чтобы начать планирование.</div>
     <div v-else ref="scrollRef" class="scroll planning-scroll">
       <template v-if="depth === 1">
