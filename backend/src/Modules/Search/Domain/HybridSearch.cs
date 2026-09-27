@@ -36,7 +36,8 @@ public static class HybridSearch
                     source.ChatContext,
                     Excerpt(best.Row.Candidate.Text, query),
                     string.Equals(source.Kind, "chat.turn", StringComparison.OrdinalIgnoreCase),
-                    IsSemantic: request.SemanticOnly || !hasLexicalMatch, best.Score);
+                    IsSemantic: request.SemanticOnly || !hasLexicalMatch, best.Score,
+                    group.Max(x => x.Candidate.SemanticScore));
             })
             .OrderByDescending(x => x.Score)
             .ThenBy(x => x.Kind, StringComparer.OrdinalIgnoreCase)

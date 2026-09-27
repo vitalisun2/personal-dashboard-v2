@@ -83,7 +83,11 @@ public enum SearchMatchKind
     Semantic
 }
 
-public sealed record SearchHit(SearchSourceReference Source, double Score, SearchMatchKind MatchKind);
+public sealed record SearchHit(
+    SearchSourceReference Source,
+    double Score,
+    SearchMatchKind MatchKind,
+    double? SemanticSimilarity = null);
 
 public sealed record SearchResponse(
     IReadOnlyList<SearchHit> Hits,

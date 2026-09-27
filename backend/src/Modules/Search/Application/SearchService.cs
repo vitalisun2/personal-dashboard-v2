@@ -49,7 +49,8 @@ public sealed class SearchService(ISearchCandidateStore candidateStore) : ISearc
             ranked.ChatContext is null ? null : new SearchChatContext(ranked.ChatContext.ConversationId,
                 ranked.ChatContext.TurnId, ranked.ChatContext.Mode, ranked.ChatContext.EntityType,
                 ranked.ChatContext.EntityId, ranked.ChatContext.EntityVersion)), ranked.Score,
-        ranked.IsSemantic ? SearchMatchKind.Semantic : SearchMatchKind.Lexical);
+        ranked.IsSemantic ? SearchMatchKind.Semantic : SearchMatchKind.Lexical,
+        ranked.SemanticSimilarity);
 
     private static string Fingerprint(SearchRequest request, int pageSize)
     {

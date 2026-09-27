@@ -36,7 +36,12 @@ export type SearchSourceReference = {
 }
 
 export type SearchMatchKind = 'lexical' | 'semantic'
-export type SearchHit = { source: SearchSourceReference; score: number; matchKind: SearchMatchKind }
+export type SearchHit = {
+  source: SearchSourceReference
+  score: number
+  matchKind: SearchMatchKind
+  semanticSimilarity?: number | null
+}
 export type SearchResponse = {
   hits: SearchHit[]
   nextCursor?: string | null

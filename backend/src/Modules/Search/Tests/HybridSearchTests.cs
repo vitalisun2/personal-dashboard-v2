@@ -55,6 +55,7 @@ public sealed class HybridSearchTests
 
         Assert.Single(ranked);
         Assert.True(ranked[0].IsSemantic);
+        Assert.Equal(.8, ranked[0].SemanticSimilarity);
     }
 
     [Fact]

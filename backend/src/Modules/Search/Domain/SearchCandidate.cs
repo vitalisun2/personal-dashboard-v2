@@ -26,4 +26,5 @@ public sealed record SearchCriteria(
 
 public sealed record RankedSource(
     string Kind, Guid Id, long Version, string? Url, string Title, string? Path, DateTimeOffset UpdatedAtUtc,
-    IndexedChatContext? ChatContext, string Snippet, bool IsChatHistory, bool IsSemantic, double Score);
+    IndexedChatContext? ChatContext, string Snippet, bool IsChatHistory, bool IsSemantic, double Score,
+    double? SemanticSimilarity);
