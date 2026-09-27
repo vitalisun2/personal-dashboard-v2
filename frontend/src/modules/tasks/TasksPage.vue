@@ -5,6 +5,7 @@ import { getOfflineStore, saveOfflineMutation } from '../../offline/runtime'
 import type { OfflineEntity, SyncOperation } from '../../offline/types'
 import { startReorderDrag } from '../../shared/reorderDrag'
 import ReorderHandle from '../../shared/ReorderHandle.vue'
+import { hasPendingGroupOrder, queueGroupOrder, readGroupOrder, type GroupOrderView } from './groupOrderOffline'
 
 type Task = { id: string; title: string; description: string; projectId?: string; milestoneId?: string; featureId?: string; location: string; workStatus: string; sectionId?: string; position: number; version: number }
 type Section = { id: string; name: string; location: string; position: number; version: number }
@@ -13,7 +14,6 @@ type MilestoneLabel = { id: string; title: string; features: FeatureLabel[] }
 type ProjectLabel = { id: string; title: string; milestones: MilestoneLabel[] }
 type MenuItem = { label: string; danger?: boolean; action: () => void }
 type GroupView = { kind: 'plain'; key: string; title: string; section: Section; tasks: Task[] } | { kind: 'project'; key: string; title: string; projectId: string; tasks: Task[] }
-type GroupOrder = { version: number; keys: string[] }
 type SwipeState = { key: string; pointerId: number; startX: number; startY: number; moved: boolean; long: boolean; timer: number }
 type DragState = { kind: 'task' | 'section'; id: string; pointerId: number; row: HTMLElement; target: HTMLElement | null; place: 'before' | 'after' | 'inside' | ''; started: boolean; lifecycle: ReturnType<typeof startReorderDrag> }
 
@@ -23,7 +23,7 @@ const state = reactive({
   bucket: 'Backlog' as 'Backlog' | 'Сегодня', filter: 'all', archive: false, orderMode: false,
   expanded: { Backlog: new Set<string>(), Сегодня: new Set<string>() },
   tasks: [] as Task[], sections: [] as Section[], projects: [] as ProjectLabel[],
-  groupOrder: { version: 0, keys: [] } as GroupOrder,
+  groupOrder: { version: 0, keys: [] } as GroupOrderView,
   detail: null as Task | null, busy: false, error: '',
   creating: false, createType: 'task' as 'task' | 'section', createListOpen: false,
   title: '', description: '', sectionId: '',
@@ -666,16 +666,17 @@ async function refresh() {
   state.busy = true; state.error = ''
   try {
     const requestedId = String(route.params.taskId || '')
-    let tasks: Task[], sections: Section[], detail: Task | null, groupOrder: GroupOrder
+    let tasks: Task[], sections: Section[], detail: Task | null, groupOrder: GroupOrderView
     try {
-      [tasks, sections, detail, groupOrder] = await Promise.all([request<Task[]>(`?location=${location.value}`), state.archive ? Promise.resolve([] as Section[]) : request<Section[]>(`/sections?location=${location.value}`), requestedId ? request<Task>(`/${requestedId}`).catch(() => null) : Promise.resolve(null), state.archive ? Promise.resolve({ version: 0, keys: [] }) : request<GroupOrder>(`/groups/order?location=${location.value}`)])
+      [tasks, sections, detail, groupOrder] = await Promise.all([request<Task[]>(`?location=${location.value}`), state.archive ? Promise.resolve([] as Section[]) : request<Section[]>(`/sections?location=${location.value}`), requestedId ? request<Task>(`/${requestedId}`).catch(() => null) : Promise.resolve(null), state.archive ? Promise.resolve({ version: 0, keys: [] }) : request<GroupOrderView>(`/groups/order?location=${location.value}`)])
+      if (!state.archive) groupOrder = await readGroupOrder(location.value, groupOrder) || groupOrder
       if (!state.archive) localStorage.setItem(`tasks.groupOrder.${location.value}`, JSON.stringify(groupOrder))
       await cacheBucket('tasks.task', location.value, tasks); if (detail) await cacheRows('tasks.task', [detail]); if (!state.archive) await cacheBucket('tasks.section', location.value, sections)
     } catch {
       const allTasks = await cached<Task>('tasks.task'), allSections = await cached<Section>('tasks.section')
       tasks = allTasks.filter(x => String(x.location).toLowerCase() === location.value.toLowerCase())
       sections = state.archive ? [] : allSections.filter(x => String(x.location).toLowerCase() === location.value.toLowerCase())
-      groupOrder = JSON.parse(localStorage.getItem(`tasks.groupOrder.${location.value}`) || '{"version":0,"keys":[]}') as GroupOrder
+      groupOrder = state.archive ? { version: 0, keys: [] } : (await readGroupOrder(location.value)) || JSON.parse(localStorage.getItem(`tasks.groupOrder.${location.value}`) || '{"version":0,"keys":[]}') as GroupOrderView
       detail = requestedId ? allTasks.find(x => x.id === requestedId) || null : null
       if (!tasks.length && !sections.length && !detail) throw new Error('Нет сети и сохранённых данных для этого списка.')
       state.error = 'Нет сети. Показаны сохранённые данные.'
@@ -771,11 +772,25 @@ async function dropGroup(sourceKey: string, targetKey: string, after = false) {
   keys.splice(from, 1)
   keys.splice(keys.indexOf(targetKey) + (after ? 1 : 0), 0, sourceKey)
   if (keys.every((key, index) => key === state.groupOrder.keys[index])) return
-  try {
-    const order = await request<GroupOrder>('/groups/order', { method: 'PUT', body: JSON.stringify({ location: location.value, expectedVersion: state.groupOrder.version, keys }) })
+  const saveQueued = async () => {
+    const order = await queueGroupOrder(location.value, state.groupOrder, keys)
     state.groupOrder = order
     localStorage.setItem(`tasks.groupOrder.${location.value}`, JSON.stringify(order))
-  } catch (error) { state.error = error instanceof TypeError ? 'Нет сети. Порядок не сохранён.' : (error as Error).message; if (!(error instanceof TypeError)) await refresh() }
+  }
+  if (!navigator.onLine || await hasPendingGroupOrder(location.value)) {
+    await saveQueued()
+    if (!navigator.onLine) state.error = 'Нет сети. Порядок сохранён и будет синхронизирован позже.'
+    return
+  }
+  try {
+    const order = await request<GroupOrderView>('/groups/order', { method: 'PUT', body: JSON.stringify({ location: location.value, expectedVersion: state.groupOrder.version, keys }) })
+    state.groupOrder = order
+    await readGroupOrder(location.value, order)
+    localStorage.setItem(`tasks.groupOrder.${location.value}`, JSON.stringify(order))
+  } catch (error) {
+    if (error instanceof TypeError) { await saveQueued(); state.error = 'Нет сети. Порядок сохранён и будет синхронизирован позже.' }
+    else { state.error = (error as Error).message; await refresh() }
+  }
 }
 
 watch(() => route.fullPath, () => void refresh())
@@ -920,7 +935,7 @@ onBeforeUnmount(() => {
     </div>
 
     <div class="overlay" :class="{ open: state.linkSheetOpen }" @click="state.linkSheetOpen = false" />
-    <section class="sheet task-link-sheet" :class="{ open: state.linkSheetOpen }" role="dialog" aria-modal="true" aria-label="Связь с планированием">
+    <section class="sheet task-link-sheet" :class="{ open: state.linkSheetOpen }" role="dialog" :aria-modal="state.linkSheetOpen ? 'true' : undefined" aria-label="Связь с планированием">
       <div class="sheet-head"><div class="sheet-title">Связь с планированием</div><button type="button" class="sheet-close" aria-label="Закрыть" @click="state.linkSheetOpen = false">×</button></div>
       <label class="task-link-label">Проект<select :value="state.linkProjectId" @change="chooseLinkProject(($event.target as HTMLSelectElement).value)"><option value="">Выбрать проект</option><option v-for="project in state.projects" :key="project.id" :value="project.id">{{ project.title }}</option></select></label>
       <label class="task-link-label">Эпик<select v-model="state.linkMilestoneId" :disabled="!selectedProject" @change="chooseLinkMilestone(state.linkMilestoneId)"><option value="">Выбрать эпик</option><option v-for="milestone in selectedProject?.milestones || []" :key="milestone.id" :value="milestone.id">{{ milestone.title }}</option></select></label>

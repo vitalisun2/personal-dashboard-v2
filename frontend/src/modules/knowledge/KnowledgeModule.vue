@@ -83,11 +83,10 @@ const deleteConflicts = computed(() => conflictItems.value.filter(conflict => co
 const syncMessage = computed(() => {
   if ((!isOnline.value || syncStatus.value === 'offline') && pendingCount.value > 0)
     return `Нет сети · ${pendingLabel(pendingCount.value)}`
-  if (syncStatus.value === 'syncing') return 'Синхронизация…'
   if (deleteConflicts.value.length > 0) return `${deleteConflicts.value.length} ${conflictWord(deleteConflicts.value.length)} удаления`
   if (syncStatus.value === 'error' && pendingCount.value > 0)
     return pendingLabel(pendingCount.value)
-  return pendingCount.value > 0 ? pendingLabel(pendingCount.value) : ''
+  return ''
 })
 const collapseLabel = computed(() => {
   const ids = sectionsWithDepth.value.map(item => item.node.id)

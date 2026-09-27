@@ -78,6 +78,8 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
         if (actualVersion != expectedVersion) throw new TaskVersionConflictException(actualVersion, expectedVersion);
         if (row is null) db.Add(new TaskGroupOrderRow { Location = location, Version = 1, KeysJson = JsonSerializer.Serialize(keys) });
         else { row.Version++; row.KeysJson = JsonSerializer.Serialize(keys); }
+        await journal.AppendAsync(new EntitySnapshot("tasks.groupOrder", TaskGroupOrderIdentity.Id(location), expectedVersion + 1, false,
+            JsonSerializer.SerializeToElement(new { keys })), ct);
     }
 
     public Task SaveSectionAsync(TaskSection section, CancellationToken ct) => transaction.ExecuteAsync(async token =>

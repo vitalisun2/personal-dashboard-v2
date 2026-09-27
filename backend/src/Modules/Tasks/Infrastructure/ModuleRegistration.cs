@@ -22,6 +22,7 @@ public static class TasksInfrastructureModule
         services.AddScoped<ITasksAgentAccess>(sp => sp.GetRequiredService<TasksAgentAccess>());
         services.AddScoped<ISyncMutationHandler, TaskSyncMutationHandler>();
         services.AddScoped<ISyncMutationHandler, TaskSectionSyncMutationHandler>();
+        services.AddScoped<ISyncMutationHandler, TaskGroupOrderSyncMutationHandler>();
         services.AddScoped<ISearchSourceFeed, TasksSearchSourceFeed>();
         return services;
     }

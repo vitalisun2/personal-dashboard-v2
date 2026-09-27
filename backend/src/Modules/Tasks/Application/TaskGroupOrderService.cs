@@ -5,6 +5,19 @@ namespace PersonalDashboard.V2.Tasks.Application;
 
 public sealed record TaskGroupOrderView(long Version, IReadOnlyList<string> Keys);
 
+public static class TaskGroupOrderIdentity
+{
+    public static readonly Guid BacklogId = Guid.Parse("3be630ad-c973-4cb2-b8d3-6374d87c8355");
+    public static readonly Guid TodayId = Guid.Parse("83b28844-904d-42fd-9640-c16606137f86");
+    public static Guid Id(TaskLocation location) => location switch
+    {
+        TaskLocation.Backlog => BacklogId,
+        TaskLocation.Today => TodayId,
+        _ => throw new ArgumentException("Groups belong to Backlog or Today.")
+    };
+    public static TaskLocation? Location(Guid id) => id == BacklogId ? TaskLocation.Backlog : id == TodayId ? TaskLocation.Today : null;
+}
+
 public interface ITaskGroupOrderRepository
 {
     Task<TaskGroupOrderView> ReadGroupOrderAsync(TaskLocation location, CancellationToken ct);

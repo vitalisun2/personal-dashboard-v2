@@ -1,6 +1,9 @@
+using System.Text.Json;
+using PersonalDashboard.V2.Contracts.Sync;
 using PersonalDashboard.V2.Contracts.Transactions;
 using PersonalDashboard.V2.Tasks.Application;
 using PersonalDashboard.V2.Tasks.Domain;
+using PersonalDashboard.V2.Tasks.Infrastructure;
 using Xunit;
 
 namespace PersonalDashboard.V2.Host.Tests;
@@ -42,6 +45,26 @@ public sealed class TaskGroupOrderTests
         await Assert.ThrowsAsync<ArgumentException>(() => service.ReorderAsync(TaskLocation.Backlog, 0, [$"section:{section.Id}"], CancellationToken.None));
         await service.ReorderAsync(TaskLocation.Backlog, 0, [$"project:{projectId}", $"section:{section.Id}"], CancellationToken.None);
         await Assert.ThrowsAsync<TaskVersionConflictException>(() => service.ReorderAsync(TaskLocation.Backlog, 0, [$"section:{section.Id}", $"project:{projectId}"], CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Offline_group_order_operation_applies_and_returns_new_snapshot()
+    {
+        var section = new TaskSection("First", TaskLocation.Backlog);
+        var projectId = Guid.NewGuid();
+        var linked = new TaskItem("Linked", projectId: projectId, milestoneId: Guid.NewGuid(), featureId: Guid.NewGuid());
+        linked.MoveToBacklog(null);
+        var service = new TaskGroupOrderService(new FakeTasksRepository([section], [linked]), new FakeGroupOrderRepository(), new ImmediateTransactionRunner());
+        var handler = new TaskGroupOrderSyncMutationHandler(service);
+        var keys = new[] { $"project:{projectId}", $"section:{section.Id}" };
+        var operation = new SyncOperation(Guid.NewGuid(), handler.Type, TaskGroupOrderIdentity.BacklogId, 0,
+            SyncOperationKind.Upsert, JsonSerializer.SerializeToElement(new { keys }));
+
+        var result = await handler.ApplyAsync(operation);
+        Assert.True(result.Applied);
+        Assert.Equal(1, result.Current?.Version);
+        Assert.Equal(keys, (await service.GetAsync(TaskLocation.Backlog, CancellationToken.None)).Keys);
+        Assert.False((await handler.ApplyAsync(operation)).Applied);
     }
 
     private sealed class FakeTasksRepository(IReadOnlyList<TaskSection> sections, IReadOnlyList<TaskItem> items) : ITasksRepository

@@ -22,7 +22,6 @@ const state = reactive({
   detailTaskId: '', editingKind: '' as '' | 'title' | 'description', editDraft: '',
   menuOpen: false, menuKind: '', menuId: '', menuX: 0, menuY: 0, menuPoint: null as { x: number; y: number } | null,
   confirm: null as null | { title: string; body: string; label: string; onConfirm: () => void },
-  renderTick: 0,
 })
 const projectId = computed(() => String(route.params.projectId || ''))
 const milestoneId = computed(() => String(route.params.milestoneId || ''))
@@ -532,18 +531,30 @@ function orderDragStart(event: PointerEvent, _id: string) {
   const handle = event.target as HTMLElement
   const row = handle.closest<HTMLElement>('.planning-order-row'); if (!row) return
   event.preventDefault()
-  const sectionRoot = sectionRef.value, scroll = scrollRef.value
-  if (!sectionRoot || !scroll) return
+  const scroll = scrollRef.value
+  if (!scroll) return
   const lifecycle = startReorderDrag(event, row, () => scroll.getBoundingClientRect())
-  row.classList.add('planning-order-source')
   const pointerId = event.pointerId
+  let target: HTMLElement | null = null
+  let place: 'before' | 'after' | '' = ''
+  const clearTarget = () => {
+    target?.classList.remove('planning-drop-before', 'planning-drop-after')
+    target = null; place = ''
+  }
   const move = (e: PointerEvent) => {
     if (e.pointerId !== pointerId) return
     if (!lifecycle.update(e)) return
-    const candidates = [...scroll.querySelectorAll('.planning-order-row')].filter(candidate => candidate !== row)
-    const target = candidates.find(candidate => { const r = candidate.getBoundingClientRect(); return e.clientY < r.top + r.height / 2 })
-    if (target) row.before(target)
-    else (scroll.querySelector('.planning-order-row:last-child') as HTMLElement | null)?.after(row)
+    row.classList.add('planning-order-source')
+    e.preventDefault()
+    const candidates = [...scroll.querySelectorAll<HTMLElement>('.planning-order-row')]
+      .filter(candidate => candidate !== row && !!candidate.querySelector('.planning-order-handle'))
+    const before = candidates.find(candidate => { const r = candidate.getBoundingClientRect(); return e.clientY < r.top + r.height / 2 })
+    const nextTarget = before || candidates[candidates.length - 1] || null
+    const nextPlace = before ? 'before' : nextTarget ? 'after' : ''
+    if (nextTarget === target && nextPlace === place) return
+    clearTarget()
+    target = nextTarget; place = nextPlace
+    target?.classList.add(place === 'before' ? 'planning-drop-before' : 'planning-drop-after')
   }
   const cleanup = (commit: boolean) => {
     if (!dragCleanup) return
@@ -554,8 +565,9 @@ function orderDragStart(event: PointerEvent, _id: string) {
     window.removeEventListener('keydown', onKey, true)
     dragCleanup = null
     lifecycle.cleanup(); row.classList.remove('planning-order-source')
-    if (commit) commitOrderFromDom()
-    else state.renderTick += 1
+    const sourceId = row.dataset.orderId || '', targetId = target?.dataset.orderId || '', after = place === 'after'
+    clearTarget()
+    if (commit && lifecycle.started && sourceId && targetId) commitOrderAtTarget(sourceId, targetId, after)
   }
   const up = (e: PointerEvent) => { if (e.pointerId === pointerId) cleanup(true) }
   const cancel = (e: PointerEvent) => { if (e.pointerId === pointerId) cleanup(false) }
@@ -568,20 +580,16 @@ function orderDragStart(event: PointerEvent, _id: string) {
   window.addEventListener('blur', onBlur)
   window.addEventListener('keydown', onKey, true)
 }
-function commitOrderFromDom() {
-  const scroll = scrollRef.value; if (!scroll) return
-  const rows = [...scroll.querySelectorAll<HTMLElement>('.planning-order-row')]
-  if (rows.length < 2) return
-  if (depth.value === 1) {
-    const ids = rows.map(row => row.dataset.orderId || '').filter(Boolean)
-    if (ids.length === (project.value?.milestones.length ?? 0)) void commitPlanOrder('milestone', ids)
-  } else if (depth.value === 2) {
-    const ids = rows.map(row => row.dataset.orderId || '').filter(Boolean)
-    if (ids.length === (milestone.value?.features.length ?? 0)) void commitPlanOrder('feature', ids)
-  } else if (depth.value === 3) {
-    const ids = rows.filter(row => row.querySelector('.planning-order-handle')).map(row => row.dataset.orderId || '').filter(Boolean)
-    void commitTaskOrder(ids)
-  }
+function commitOrderAtTarget(sourceId: string, targetId: string, after: boolean) {
+  const ids = depth.value === 1 ? project.value?.milestones.map(item => item.id)
+    : depth.value === 2 ? milestone.value?.features.map(item => item.id)
+      : depth.value === 3 ? linkedTasks.value.filter(item => taskState(item) === 'planned').map(item => item.id) : null
+  if (!ids?.includes(sourceId) || !ids.includes(targetId)) return
+  const order = ids.filter(id => id !== sourceId)
+  order.splice(order.indexOf(targetId) + (after ? 1 : 0), 0, sourceId)
+  if (depth.value === 1) void commitPlanOrder('milestone', order)
+  else if (depth.value === 2) void commitPlanOrder('feature', order)
+  else void commitTaskOrder(order)
 }
 async function commitPlanOrder(type: 'milestone' | 'feature', ids: string[]) {
   if (!project.value) return
@@ -675,7 +683,7 @@ onBeforeUnmount(onUnmountedCleanup)
         </div>
         <div class="planning-list-head"><span>Эпики</span><div class="planning-list-actions"><button class="order-mode-toggle planning-order-toggle" type="button" :aria-pressed="state.orderMode ? 'true' : 'false'" :aria-label="state.orderMode ? 'Готово' : 'Включить сортировку'" @click="toggleOrderMode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h11M19 6v12m-2.5-2.5L19 18l2.5-2.5" /></svg></button><button type="button" aria-label="Добавить эпик" @click="startCreate('milestone')">＋</button></div></div>
         <div v-if="!project.milestones.length" class="planning-empty">Эпики появятся здесь.</div>
-        <div :key="state.renderTick" class="planning-roadmap">
+        <div class="planning-roadmap">
           <template v-if="state.orderMode">
             <div v-for="item in project.milestones" :key="'order-' + item.id" class="planning-milestone-row planning-order-row" :data-order-id="item.id">
               <span class="planning-milestone-title">{{ item.title }}</span>
@@ -710,7 +718,7 @@ onBeforeUnmount(onUnmountedCleanup)
         </div>
         <div class="planning-list-head"><span>Фичи</span><div class="planning-list-actions"><button class="order-mode-toggle planning-order-toggle" type="button" :aria-pressed="state.orderMode ? 'true' : 'false'" :aria-label="state.orderMode ? 'Готово' : 'Включить сортировку'" @click="toggleOrderMode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h11M19 6v12m-2.5-2.5L19 18l2.5-2.5" /></svg></button><button type="button" aria-label="Добавить фичу" @click="startCreate('feature')">＋</button></div></div>
         <div v-if="!milestone.features.length" class="planning-empty">Фичи появятся здесь.</div>
-        <div :key="state.renderTick" class="planning-feature-list">
+        <div class="planning-feature-list">
           <template v-if="state.orderMode">
             <div v-for="item in milestone.features" :key="'order-' + item.id" class="planning-feature-row planning-order-row" :data-order-id="item.id">
               <span>{{ item.title }}</span>
@@ -764,7 +772,7 @@ onBeforeUnmount(onUnmountedCleanup)
           </div>
           <div class="planning-list-head planning-feature-list-head"><span>Задачи</span><div class="planning-list-actions"><button class="order-mode-toggle planning-order-toggle" type="button" :aria-pressed="state.orderMode ? 'true' : 'false'" :aria-label="state.orderMode ? 'Готово' : 'Включить сортировку'" @click="toggleOrderMode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h11M19 6v12m-2.5-2.5L19 18l2.5-2.5" /></svg></button><button type="button" aria-label="Добавить задачу" @click="startCreate('task')">＋</button></div></div>
           <div v-if="!linkedTasks.length" class="planning-empty">У этой фичи пока нет задач.</div>
-          <div :key="state.renderTick" class="planning-feature-tasks">
+          <div class="planning-feature-tasks">
             <template v-if="state.orderMode">
               <div v-for="item in linkedTasks" :key="'order-' + item.id" class="planning-feature-task planning-order-row" :data-order-id="item.id">
                 <span class="planning-feature-task-title">{{ item.title }}</span>
@@ -812,3 +820,20 @@ onBeforeUnmount(onUnmountedCleanup)
     </div>
   </section>
 </template>
+
+<style scoped>
+.planning-order-row { position: relative; }
+.planning-drop-before::before,
+.planning-drop-after::after {
+  position: absolute;
+  z-index: 2;
+  left: 8px;
+  right: 8px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--accent);
+  content: '';
+}
+.planning-drop-before::before { top: 0; }
+.planning-drop-after::after { bottom: 0; }
+</style>
