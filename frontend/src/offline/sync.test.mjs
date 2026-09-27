@@ -119,6 +119,54 @@ test('an in-flight push does not replace a newer local edit of the same entity',
   assert.deepEqual(pending.map(operation => operation.operationId), ['second']);
 });
 
+test('a delete version conflict retries once with current server version and a new operation id', async () => {
+  const pending = [{ operationId: 'delete-1', type: 'knowledge.node', id: 'doc-a', kind: 'delete', expectedVersion: 2, createdAt: '2026-09-25T10:00:00Z' }];
+  let local = { type: 'knowledge.node', id: 'doc-a', version: 3, payload: null, deleted: true };
+  const conflicts = [];
+  const sent = [];
+  const store = {
+    async listPendingOperations() { return [...pending]; },
+    async removeOperation(id) { pending.splice(pending.findIndex(operation => operation.operationId === id), 1); },
+    async replaceOperation(id, replacement) {
+      pending.splice(pending.findIndex(operation => operation.operationId === id), 1, replacement);
+    },
+    async resolveConflict(id, entity) {
+      pending.splice(pending.findIndex(operation => operation.operationId === id), 1);
+      if (entity) local = entity;
+    },
+    async putEntity(entity) { local = entity; },
+    async getEntity() { return local; },
+    async putConflict(conflict) { conflicts.push(conflict); },
+    async getChangeCursor() { return 0; },
+    async setChangeCursor() {},
+    async getSyncEpoch() { return 'epoch-1'; },
+    async setSyncEpoch() {},
+    async clearLocalData() { throw new Error('Unexpected offline reset'); },
+  };
+  let push = 0;
+  const transport = {
+    async getSyncEpoch() { return 'epoch-1'; },
+    async pushOperations(request) {
+      sent.push(request.operations);
+      push++;
+      if (push === 1) return [{ operationId: 'delete-1', applied: false, skipped: false, current: { type: 'knowledge.node', id: 'doc-a', version: 4, payload: { title: 'Server' }, deleted: false }, conflictReason: 'Version mismatch' }];
+      const retry = request.operations[0];
+      return [{ operationId: retry.operationId, applied: true, skipped: false, current: { type: 'knowledge.node', id: 'doc-a', version: 5, payload: null, deleted: true }, conflictReason: null }];
+    },
+    async pullChanges() { return { changes: [], nextSequence: 0, isComplete: true }; },
+  };
+
+  const summary = await syncPendingOperations(store, transport, () => new Date('2026-09-25T10:05:00Z'));
+
+  assert.deepEqual(summary, { applied: 1, conflicts: 0, pulled: 0 });
+  assert.equal(sent.length, 2);
+  assert.equal(sent[1][0].expectedVersion, 4);
+  assert.notEqual(sent[1][0].operationId, 'delete-1');
+  assert.equal(pending.length, 0);
+  assert.equal(local.deleted, true);
+  assert.deepEqual(conflicts, []);
+});
+
 test('a new server epoch clears old cached records and queued mutations before syncing', async () => {
   const entities = [{ type: 'planning.project', id: 'old-project', version: 1, deleted: false, payload: { title: 'stale' } }];
   const pending = [{ operationId: 'stale-op', type: 'planning.project', id: 'old-project', kind: 'upsert', expectedVersion: null, payload: { title: 'stale' }, createdAt: '2026-09-25T10:00:00Z' }];

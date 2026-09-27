@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import SearchHighlight from '../../shared/SearchHighlight.vue'
-import { searchKnowledge, type KnowledgeSearchResult } from '../knowledge/knowledgeApi'
+import { getLocallyDeletedKnowledgeIds, searchKnowledge, type KnowledgeSearchResult } from '../knowledge/knowledgeApi'
 import { search as searchIndexed, type SearchHit } from './searchApi'
 
 const props = defineProps<{
@@ -15,12 +15,14 @@ const exactLoading = ref(false)
 const semanticLoading = ref(false)
 const error = ref('')
 const semanticError = ref('')
+const locallyDeletedIds = ref(new Set<string>())
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 let searchRevision = 0
 
 const similarResults = computed(() => {
   const exactIds = new Set(exactResults.value.map(result => result.id))
-  return indexedHits.value.filter(hit => hit.source.kind === 'knowledge.document' && !exactIds.has(hit.source.id))
+  return indexedHits.value.filter(hit => hit.source.kind === 'knowledge.document' &&
+    !exactIds.has(hit.source.id) && !locallyDeletedIds.value.has(hit.source.id))
 })
 const loading = computed(() => exactLoading.value || semanticLoading.value)
 const hasResults = computed(() => exactResults.value.length > 0 || similarResults.value.length > 0)
@@ -40,15 +42,17 @@ async function runSearch() {
 
   exactLoading.value = true
   semanticLoading.value = true
-  const exactSearch = searchKnowledge(term)
-    .then(found => { if (revision === searchRevision) exactResults.value = found })
+  const hiddenSearch = getLocallyDeletedKnowledgeIds().catch(() => new Set<string>())
+    .then(ids => { if (revision === searchRevision) locallyDeletedIds.value = ids; return ids })
+  const exactSearch = Promise.all([searchKnowledge(term), hiddenSearch])
+    .then(([found, hidden]) => { if (revision === searchRevision) exactResults.value = found.filter(result => !hidden.has(result.id)) })
     .catch(cause => { if (revision === searchRevision) error.value = cause instanceof Error ? cause.message : 'Не удалось выполнить поиск.' })
     .finally(() => { if (revision === searchRevision) exactLoading.value = false })
-  const semanticSearch = searchIndexed({ query: term, mode: 'relevant', kinds: ['knowledge.document'], pageSize: 20, matchMode: 'semantic' })
+  const semanticSearch = searchIndexed({ query: term, mode: 'relevant', kinds: ['knowledge.document'], pageSize: 5, matchMode: 'semantic' })
     .then(found => { if (revision === searchRevision) indexedHits.value = found.hits })
     .catch(() => { if (revision === searchRevision) semanticError.value = 'Поиск по смыслу временно недоступен.' })
     .finally(() => { if (revision === searchRevision) semanticLoading.value = false })
-  await Promise.allSettled([exactSearch, semanticSearch])
+  await Promise.allSettled([exactSearch, semanticSearch, hiddenSearch])
 }
 
 function scheduleSearch() {

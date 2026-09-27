@@ -11,6 +11,14 @@ export function toSyncPushRequest(operations: SyncOperation[]): SyncPushRequest 
   };
 }
 
+function canRetryDelete(operation: SyncOperation, current: OfflineEntity | null): current is OfflineEntity {
+  return operation.kind === "delete" && (operation.retryCount ?? 0) < 1 && current !== null && !current.deleted;
+}
+
+function deleteAlreadyApplied(operation: SyncOperation, current: OfflineEntity | null): boolean {
+  return operation.kind === "delete" && (current === null || current.deleted);
+}
+
 function entityKey(type: string, id: string): string {
   return `${type}\u0000${id}`;
 }
@@ -57,6 +65,7 @@ export async function syncPendingOperations(
 
   const summary: SyncSummary = { applied: 0, conflicts: 0, pulled: 0 };
   const detectedAt = now().toISOString();
+  const deleteRetries: SyncOperation[] = [];
   for (let index = 0; index < operations.length; index++) {
     const operation = operations[index];
     const result = pushResults[index];
@@ -75,8 +84,43 @@ export async function syncPendingOperations(
       await store.removeOperation(operation.operationId);
       summary.applied++;
     } else if (!result.skipped) {
-      await store.putConflict(conflictFromOperation(operation, result.current, result.conflictReason, detectedAt));
-      summary.conflicts++;
+      if (deleteAlreadyApplied(operation, result.current)) {
+        await store.resolveConflict(operation.operationId, result.current ?? undefined);
+        summary.applied++;
+      } else if (canRetryDelete(operation, result.current)) {
+        const retry: SyncOperation = {
+          ...operation,
+          operationId: crypto.randomUUID(),
+          expectedVersion: result.current.version,
+          createdAt: detectedAt,
+          retryCount: 1,
+        };
+        await store.replaceOperation(operation.operationId, retry);
+        deleteRetries.push(retry);
+      } else {
+        await store.putConflict(conflictFromOperation(operation, result.current, result.conflictReason, detectedAt));
+        summary.conflicts++;
+      }
+    }
+  }
+
+  if (deleteRetries.length > 0) {
+    const retryResults = await transport.pushOperations(toSyncPushRequest(deleteRetries), epoch);
+    if (retryResults.length !== deleteRetries.length)
+      throw new Error("Sync transport returned a different number of delete retry results than operations");
+    for (let index = 0; index < deleteRetries.length; index++) {
+      const operation = deleteRetries[index];
+      const result = retryResults[index];
+      if (result.operationId !== operation.operationId)
+        throw new Error("Sync transport returned delete retry results in an unexpected order");
+      if (result.applied || deleteAlreadyApplied(operation, result.current)) {
+        if (result.current) await store.putEntity(result.current);
+        await store.resolveConflict(operation.operationId);
+        summary.applied++;
+      } else if (!result.skipped) {
+        await store.putConflict(conflictFromOperation(operation, result.current, result.conflictReason, detectedAt));
+        summary.conflicts++;
+      }
     }
   }
 

@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Text.RegularExpressions;
 using PersonalDashboard.V2.Contracts.Transactions;
 using PersonalDashboard.V2.Knowledge.Application;
 using PersonalDashboard.V2.Knowledge.Domain;
@@ -34,12 +35,24 @@ internal sealed class EfKnowledgeStore(PlatformDbContext dbContext, ITransaction
 
         public async Task<IReadOnlyList<KnowledgeNode>> SearchLiveDocumentsAsync(string term, CancellationToken cancellationToken)
         {
-            var pattern = LiteralPattern(term);
-            return await dbContext.Set<KnowledgeNode>()
+            var query = dbContext.Set<KnowledgeNode>()
                 .AsNoTracking()
                 .Where(node => node.DeletedAt == null && node.ArchivedAt == null &&
-                    node.Type == KnowledgeNodeType.Document &&
-                    (EF.Functions.ILike(node.Title, pattern, "\\") || EF.Functions.ILike(node.Markdown, pattern, "\\")))
+                    node.Type == KnowledgeNodeType.Document);
+            if (IsSingleWord(term))
+            {
+                var wordPattern = $@"\m{Regex.Escape(term)}\M";
+                query = query.Where(node =>
+                    Regex.IsMatch(node.Title, wordPattern, RegexOptions.IgnoreCase) ||
+                    Regex.IsMatch(node.Markdown, wordPattern, RegexOptions.IgnoreCase));
+            }
+            else
+            {
+                var pattern = LiteralPattern(term);
+                query = query.Where(node =>
+                    EF.Functions.ILike(node.Title, pattern, "\\") || EF.Functions.ILike(node.Markdown, pattern, "\\"));
+            }
+            return await query
                 .OrderBy(node => node.Title)
                 .ToListAsync(cancellationToken);
         }
@@ -66,5 +79,7 @@ internal sealed class EfKnowledgeStore(PlatformDbContext dbContext, ITransaction
             "%" + term.Replace("\\", "\\\\", StringComparison.Ordinal)
                 .Replace("%", "\\%", StringComparison.Ordinal)
                 .Replace("_", "\\_", StringComparison.Ordinal) + "%";
+
+        private static bool IsSingleWord(string term) => term.All(character => char.IsLetterOrDigit(character) || character == '_');
     }
 }

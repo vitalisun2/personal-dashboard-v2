@@ -1,5 +1,5 @@
 import { getOfflineStore, saveOfflineMutation } from '../../offline/runtime'
-import type { OfflineEntity, SyncOperation } from '../../offline/types'
+import type { OfflineEntity, SyncConflict, SyncOperation } from '../../offline/types'
 
 export type KnowledgeNode = {
   id: string
@@ -78,6 +78,21 @@ export function searchKnowledge(query: string): Promise<KnowledgeSearchResult[]>
   return request<KnowledgeSearchResult[]>(`/api/v2/knowledge/search?q=${encodeURIComponent(query)}`)
 }
 
+export async function getLocallyDeletedKnowledgeIds(): Promise<Set<string>> {
+  const entities = await (await getOfflineStore()).listEntities<KnowledgeNode>(ENTITY_TYPE)
+  const hidden = new Set(entities.filter(entity => entity.deleted).map(entity => entity.id))
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const entity of entities) {
+      if (hidden.has(entity.id) || !entity.payload?.parentId || !hidden.has(entity.payload.parentId)) continue
+      hidden.add(entity.id)
+      changed = true
+    }
+  }
+  return hidden
+}
+
 async function nextOperationTime(entityId: string): Promise<string> {
   const pending = await (await getOfflineStore()).listPendingOperations()
   const last = pending.filter(operation => operation.type === ENTITY_TYPE && operation.id === entityId)
@@ -105,8 +120,30 @@ export async function queueKnowledgeDelete(node: KnowledgeNode): Promise<void> {
   await saveOfflineMutation({ type: ENTITY_TYPE, id: node.id, version: node.version + 1, payload: null, deleted: true }, operation)
 }
 
-export async function getKnowledgeConflicts() {
-  return (await getOfflineStore()).listConflicts().then(conflicts => conflicts.filter(conflict => conflict.type === ENTITY_TYPE))
+export async function getKnowledgeConflicts(): Promise<SyncConflict<KnowledgeNode>[]> {
+  return (await getOfflineStore()).listConflicts()
+    .then(conflicts => conflicts.filter(conflict => conflict.type === ENTITY_TYPE) as SyncConflict<KnowledgeNode>[])
+}
+
+export async function retryKnowledgeDeleteConflict(conflict: SyncConflict<KnowledgeNode>): Promise<void> {
+  if (!conflict.localDeleted || conflict.serverVersion === null || conflict.serverDeleted)
+    throw new Error('Удаление нельзя повторить для текущего состояния документа.')
+  const operation: SyncOperation = {
+    operationId: crypto.randomUUID(), type: ENTITY_TYPE, id: conflict.id,
+    expectedVersion: conflict.serverVersion, kind: 'delete', createdAt: new Date().toISOString(), retryCount: 1,
+  }
+  await (await getOfflineStore()).replaceOperation(conflict.operationId, operation)
+}
+
+export async function keepKnowledgeServerVersion(conflict: SyncConflict<KnowledgeNode>): Promise<void> {
+  const entity = conflict.serverVersion === null ? undefined : {
+    type: ENTITY_TYPE,
+    id: conflict.id,
+    version: conflict.serverVersion,
+    payload: conflict.serverDeleted ? null : conflict.serverPayload,
+    deleted: conflict.serverDeleted ?? false,
+  }
+  await (await getOfflineStore()).resolveConflict(conflict.operationId, entity)
 }
 
 export async function pendingKnowledgeCount(): Promise<number> {

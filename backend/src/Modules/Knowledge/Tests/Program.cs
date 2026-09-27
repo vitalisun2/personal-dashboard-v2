@@ -46,6 +46,10 @@ var deletedSync = await service.ApplySyncOperationAsync(new SyncOperation(Guid.N
     1, SyncOperationKind.Delete, null));
 Require(deletedSync.Applied && deletedSync.Current?.Deleted == true && deletedSync.Current.Version == 2,
     "queued delete accepts version one and returns a newer tombstone");
+var repeatedDelete = await service.ApplySyncOperationAsync(new SyncOperation(Guid.NewGuid(), "knowledge.node", syncedId,
+    1, SyncOperationKind.Delete, null));
+Require(repeatedDelete.Applied && repeatedDelete.Current?.Deleted == true && repeatedDelete.Current.Version == 2,
+    "repeated delete is idempotent");
 var staleSync = await service.ApplySyncOperationAsync(new SyncOperation(Guid.NewGuid(), "knowledge.node", syncedId,
     1, SyncOperationKind.Upsert, syncPayload));
 Require(!staleSync.Applied && staleSync.Current?.Deleted == true, "stale queued writes return a current conflict snapshot");

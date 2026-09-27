@@ -26,21 +26,23 @@ public sealed partial class KnowledgeService
 
             if (operation.Kind == SyncOperationKind.Delete)
             {
-                if (root is null) return new SyncMutationResult(false, Current(), "Knowledge node was not found or was permanently deleted.");
+                if (existing is null || existing.IsDeleted)
+                    return new SyncMutationResult(true, Current(), null);
+                var deleteRoot = existing;
                 if (operation.ExpectedVersion is not long deleteVersion)
-                    return new SyncMutationResult(false, Snapshot(root, all), "ExpectedVersion is required for deletion.");
-                if (root.Version != deleteVersion)
-                    return new SyncMutationResult(false, Snapshot(root, all), $"Expected version {deleteVersion}, current version is {root.Version}.");
+                    return new SyncMutationResult(false, Snapshot(deleteRoot, all), "ExpectedVersion is required for deletion.");
+                if (deleteRoot.Version != deleteVersion)
+                    return new SyncMutationResult(false, Snapshot(deleteRoot, all), $"Expected version {deleteVersion}, current version is {deleteRoot.Version}.");
 
-                var subtree = KnowledgeTree.NonDeletedDescendantsAndSelf(all, root.Id);
-                var siblings = all.Where(n => n.ParentId == root.ParentId && n.Id != root.Id && n.IsActive).OrderBy(n => n.Position).ToList();
-                root.Delete(deleteVersion, timeProvider.GetUtcNow());
+                var subtree = KnowledgeTree.NonDeletedDescendantsAndSelf(all, deleteRoot.Id);
+                var siblings = all.Where(n => n.ParentId == deleteRoot.ParentId && n.Id != deleteRoot.Id && n.IsActive).OrderBy(n => n.Position).ToList();
+                deleteRoot.Delete(deleteVersion, timeProvider.GetUtcNow());
                 foreach (var child in subtree.Skip(1)) child.Delete(child.Version, timeProvider.GetUtcNow());
                 var changedSiblings = Compact(siblings, timeProvider.GetUtcNow());
                 await tx.SaveChangesAsync(ct);
                 var mutation = MakeMutation(subtree.Concat(changedSiblings), all);
                 await AppendChangesAsync(mutation, ct);
-                return new SyncMutationResult(true, Snapshot(root, all), null);
+                return new SyncMutationResult(true, Snapshot(deleteRoot, all), null);
             }
 
             if (operation.Kind != SyncOperationKind.Upsert)

@@ -5,10 +5,12 @@ import { requestSync, subscribeSyncStatus, type SyncStatus } from '../../offline
 import SearchHighlight from '../../shared/SearchHighlight.vue'
 import { search as searchIndexed, type SearchHit } from '../search/searchApi'
 import {
-  cacheServerKnowledge, getCachedKnowledge, getKnowledgeConflicts, loadKnowledgeTree,
-  pendingKnowledgeCount, queueKnowledgeDelete, queueKnowledgeUpsert, searchKnowledge,
+  cacheServerKnowledge, getCachedKnowledge, getKnowledgeConflicts, getLocallyDeletedKnowledgeIds,
+  keepKnowledgeServerVersion, loadKnowledgeTree, pendingKnowledgeCount, queueKnowledgeDelete,
+  queueKnowledgeUpsert, retryKnowledgeDeleteConflict, searchKnowledge,
   type KnowledgeNode, type KnowledgeSearchResult,
 } from './knowledgeApi'
+import type { SyncConflict } from '../../offline/types'
 import './knowledge.css'
 
 const route = useRoute()
@@ -21,10 +23,11 @@ const query = ref(String(route.query.q || ''))
 const exactSearchLoading = ref(false)
 const semanticSearchLoading = ref(false)
 const semanticSearchError = ref('')
+const locallyDeletedIds = ref(new Set<string>())
+const deleteNotice = ref('')
 const orderMode = ref(false)
 const busy = ref(false)
 const error = ref('')
-const conflicts = ref(0)
 const pendingCount = ref(0)
 const isOnline = ref(typeof navigator === 'undefined' || navigator.onLine)
 const syncStatus = ref<SyncStatus>('ready')
@@ -70,10 +73,21 @@ const document = computed(() => nodes.value.find(node => node.id === documentId.
 const isSearching = computed(() => query.value.trim().length > 0)
 const similarResults = computed(() => {
   const exactIds = new Set(results.value.map(result => result.id))
-  return indexedHits.value.filter(hit => hit.source.kind === 'knowledge.document' && !exactIds.has(hit.source.id))
+  return indexedHits.value.filter(hit => hit.source.kind === 'knowledge.document' &&
+    !exactIds.has(hit.source.id) && !locallyDeletedIds.value.has(hit.source.id))
 })
 const searchLoading = computed(() => exactSearchLoading.value || semanticSearchLoading.value)
 const hasSearchResults = computed(() => results.value.length > 0 || similarResults.value.length > 0)
+const deleteConflicts = computed(() => conflictItems.value.filter(conflict => conflict.localDeleted))
+const syncMessage = computed(() => {
+  if ((!isOnline.value || syncStatus.value === 'offline') && pendingCount.value > 0)
+    return `Нет сети · ${pendingLabel(pendingCount.value)}`
+  if (syncStatus.value === 'syncing') return 'Синхронизация…'
+  if (deleteConflicts.value.length > 0) return `${deleteConflicts.value.length} ${conflictWord(deleteConflicts.value.length)} удаления`
+  if (syncStatus.value === 'error' && pendingCount.value > 0)
+    return pendingLabel(pendingCount.value)
+  return pendingCount.value > 0 ? pendingLabel(pendingCount.value) : ''
+})
 const collapseLabel = computed(() => {
   const ids = sectionsWithDepth.value.map(item => item.node.id)
   const allOpen = ids.length > 0 && ids.every(id => expanded.value.has(id))
@@ -92,6 +106,9 @@ const createWhereLabel = computed(() => {
 })
 
 function childNodes(parentId: string | null): KnowledgeNode[] { return nodes.value.filter(node => node.parentId === parentId).sort((a, b) => a.position - b.position) }
+function changeWord(count: number) { return count === 1 ? 'изменение' : count < 5 ? 'изменения' : 'изменений' }
+function pendingLabel(count: number) { return `${count} ${changeWord(count)} ${count === 1 ? 'ожидает' : 'ожидают'} синхронизации` }
+function conflictWord(count: number) { return count === 1 ? 'конфликт' : count < 5 ? 'конфликта' : 'конфликтов' }
 function setError(err: unknown) { error.value = err instanceof Error ? err.message : 'Не удалось выполнить действие' }
 function nodePath(node: KnowledgeNode, all = nodes.value): string {
   const parent = node.parentId ? all.find(item => item.id === node.parentId) : undefined
@@ -131,7 +148,6 @@ async function refreshSyncState() {
     const [pending, list] = await Promise.all([pendingKnowledgeCount(), getKnowledgeConflicts()])
     pendingCount.value = pending
     conflictItems.value = list
-    conflicts.value = list.length
   } catch (err) { setError(err) }
 }
 async function retrySync() {
@@ -163,15 +179,17 @@ async function runSearch() {
   exactSearchLoading.value = true
   semanticSearchLoading.value = true
   orderMode.value = false
-  const exactSearch = searchKnowledge(term)
-    .then(found => { if (revision === searchRevision) results.value = found })
+  const hiddenSearch = getLocallyDeletedKnowledgeIds().catch(() => new Set<string>())
+    .then(ids => { if (revision === searchRevision) locallyDeletedIds.value = ids; return ids })
+  const exactSearch = Promise.all([searchKnowledge(term), hiddenSearch])
+    .then(([found, hidden]) => { if (revision === searchRevision) results.value = found.filter(result => !hidden.has(result.id)) })
     .catch(err => { if (revision === searchRevision) setError(err) })
     .finally(() => { if (revision === searchRevision) exactSearchLoading.value = false })
-  const semanticSearch = searchIndexed({ query: term, mode: 'relevant', kinds: ['knowledge.document'], pageSize: 20, matchMode: 'semantic' })
+  const semanticSearch = searchIndexed({ query: term, mode: 'relevant', kinds: ['knowledge.document'], pageSize: 5, matchMode: 'semantic' })
     .then(found => { if (revision === searchRevision) indexedHits.value = found.hits })
     .catch(() => { if (revision === searchRevision) semanticSearchError.value = 'Поиск по смыслу временно недоступен.' })
     .finally(() => { if (revision === searchRevision) semanticSearchLoading.value = false })
-  await Promise.allSettled([exactSearch, semanticSearch])
+  await Promise.allSettled([exactSearch, semanticSearch, hiddenSearch])
 }
 function scheduleSearch() {
   if (searchTimer) clearTimeout(searchTimer)
@@ -193,6 +211,7 @@ watch(createOpen, open => {
   else void nextTick(() => nameField.value?.focus({ preventScroll: true }))
 })
 let unsubscribeSync: () => void = () => undefined
+let deleteNoticeTimer: ReturnType<typeof setTimeout> | undefined
 const onOnline = () => { isOnline.value = true }
 const onOffline = () => { isOnline.value = false }
 onMounted(() => {
@@ -205,6 +224,7 @@ onMounted(() => {
 })
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer)
+  if (deleteNoticeTimer) clearTimeout(deleteNoticeTimer)
   searchRevision++
   unsubscribeSync()
   window.removeEventListener('online', onOnline)
@@ -296,10 +316,31 @@ async function confirmDelete() {
     await queueKnowledgeDelete(deleteTarget.value)
     deleteTarget.value = null
     nodes.value = nodes.value.filter(node => node.id !== deletingId && !node.path.startsWith(`${deletePath} / `))
+    if (!navigator.onLine) {
+      deleteNotice.value = 'Документ удалён локально. Синхронизируем при подключении.'
+      if (deleteNoticeTimer) clearTimeout(deleteNoticeTimer)
+      deleteNoticeTimer = setTimeout(() => { deleteNotice.value = '' }, 4000)
+    }
     if (navigator.onLine) requestSync()
     await refreshSyncState()
     if (documentId.value === deletingId || nodes.value.every(node => node.id !== documentId.value)) backToTree()
   } catch (err) { setError(err) } finally { busy.value = false }
+}
+
+async function retryDeleteConflict(conflict: SyncConflict<KnowledgeNode>) {
+  try {
+    await retryKnowledgeDeleteConflict(conflict)
+    await refreshSyncState()
+    requestSync()
+  } catch (err) { setError(err) }
+}
+
+async function keepServerDocument(conflict: SyncConflict<KnowledgeNode>) {
+  try {
+    await keepKnowledgeServerVersion(conflict)
+    nodes.value = await getCachedKnowledge()
+    await refreshSyncState()
+  } catch (err) { setError(err) }
 }
 function isDescendant(id: string, possibleAncestorId: string): boolean {
   let parentId = nodes.value.find(item => item.id === id)?.parentId
@@ -349,6 +390,18 @@ function clearSearch() {
 <template>
   <section id="knowledgeFX" class="knowledge-section" aria-label="База знаний">
       <p v-if="error" class="knowledge-error" role="alert">{{ error }}</p>
+      <div v-if="syncMessage" class="knowledge-sync" role="status">
+        <span>{{ syncMessage }}</span>
+        <button v-if="isOnline && (syncStatus === 'error' || pendingCount > 0)" type="button" @click="retrySync">Повторить</button>
+      </div>
+      <div v-for="conflict in deleteConflicts" :key="conflict.operationId" class="knowledge-conflict">
+        <p>Документ «{{ conflict.serverPayload?.title || 'Без названия' }}» изменился на другом устройстве. Удалить актуальную версию?</p>
+        <div class="knowledge-conflict-actions">
+          <button type="button" @click="keepServerDocument(conflict)">Оставить</button>
+          <button type="button" class="danger" @click="retryDeleteConflict(conflict)">Удалить</button>
+        </div>
+      </div>
+      <p v-if="deleteNotice" class="knowledge-toast" role="status">{{ deleteNotice }}</p>
 
     <div v-if="document" id="docFX" class="scroll">
       <div class="doc-detail-top">

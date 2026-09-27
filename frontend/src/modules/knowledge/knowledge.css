@@ -12,6 +12,11 @@
 .knowledge-conflict { margin-bottom: 12px; padding: 12px 14px; border: 1px solid #594a31; border-radius: 11px; background: #252116; color: #e7c77f; font-size: 12px; }
 .knowledge-conflict p { margin: 6px 0; }
 .knowledge-conflict ul { display: grid; gap: 5px; margin: 8px 0 0; padding-left: 20px; }
+.knowledge-conflict-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.knowledge-conflict-actions button { padding: 7px 11px; border: 1px solid #66583b; border-radius: 8px; background: #30291b; color: #f0d28c; }
+.knowledge-conflict-actions button.danger { border-color: #6b3a42; background: #351e23; color: #f0a4af; }
+
+.knowledge-toast { position: fixed; z-index: 30; left: 50%; bottom: 86px; width: min(340px, calc(100% - 32px)); transform: translateX(-50%); margin: 0; padding: 11px 14px; border: 1px solid #344758; border-radius: 10px; background: #18242f; color: #d4e0eb; box-shadow: 0 8px 24px #0008; font-size: 12px; text-align: center; }
 
 .knowledge-local-note { margin: 0 2px 10px; color: #8798aa; font-size: 11px; }
 

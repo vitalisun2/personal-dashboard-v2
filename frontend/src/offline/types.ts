@@ -18,6 +18,7 @@ export interface SyncOperation<T = unknown> {
   kind: SyncOperationKind;
   payload?: T;
   createdAt: string;
+  retryCount?: number;
 }
 
 export interface SyncConflict<T = unknown> {
@@ -73,9 +74,12 @@ export interface OfflineStore {
   putEntity(entity: OfflineEntity): Promise<void>;
   saveEntityAndQueue(entity: OfflineEntity, operation: SyncOperation): Promise<void>;
   enqueueOperation(operation: SyncOperation): Promise<void>;
+  replaceOperation(operationId: string, replacement: SyncOperation): Promise<void>;
   listPendingOperations(): Promise<SyncOperation[]>;
   removeOperation(operationId: string): Promise<void>;
   putConflict(conflict: SyncConflict): Promise<void>;
+  listConflicts(): Promise<SyncConflict[]>;
+  resolveConflict(operationId: string, entity?: OfflineEntity): Promise<void>;
   getChangeCursor(): Promise<number>;
   setChangeCursor(sequence: number): Promise<void>;
   getSyncEpoch(): Promise<string | undefined>;

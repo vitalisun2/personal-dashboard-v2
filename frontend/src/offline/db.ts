@@ -93,6 +93,14 @@ export class IndexedDbOfflineStore implements OfflineStore {
     await transactionDone(transaction);
   }
 
+  async replaceOperation(operationId: string, replacement: SyncOperation): Promise<void> {
+    const transaction = this.database.transaction(["operations", "conflicts"], "readwrite");
+    transaction.objectStore("operations").delete(operationId);
+    transaction.objectStore("operations").add(replacement);
+    transaction.objectStore("conflicts").delete(operationId);
+    await transactionDone(transaction);
+  }
+
   async listPendingOperations(): Promise<SyncOperation[]> {
     const transaction = this.database.transaction("operations", "readonly");
     const completion = transactionDone(transaction);
@@ -107,6 +115,15 @@ export class IndexedDbOfflineStore implements OfflineStore {
 
   async putConflict(conflict: SyncConflict): Promise<void> {
     await this.write("conflicts", conflict);
+  }
+
+  async resolveConflict(operationId: string, entity?: OfflineEntity): Promise<void> {
+    const stores = entity ? ["entities", "operations", "conflicts"] : ["operations", "conflicts"];
+    const transaction = this.database.transaction(stores, "readwrite");
+    transaction.objectStore("operations").delete(operationId);
+    transaction.objectStore("conflicts").delete(operationId);
+    if (entity) transaction.objectStore("entities").put(entity);
+    await transactionDone(transaction);
   }
 
   async getChangeCursor(): Promise<number> {

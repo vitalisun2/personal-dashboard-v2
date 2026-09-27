@@ -10,7 +10,11 @@ const parts = computed(() => {
   const query = props.query.trim()
   if (!query) return [{ text: props.text, match: false }]
   const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  return props.text.split(new RegExp(`(${escaped})`, 'giu'))
+  const singleWord = [...query].every(character => /[\p{L}\p{N}_]/u.test(character))
+  const pattern = singleWord
+    ? `(?<![\\p{L}\\p{N}_])(${escaped})(?![\\p{L}\\p{N}_])`
+    : `(${escaped})`
+  return props.text.split(new RegExp(pattern, 'giu'))
     .filter(Boolean)
     .map(text => ({ text, match: text.localeCompare(query, undefined, { sensitivity: 'accent' }) === 0 }))
 })

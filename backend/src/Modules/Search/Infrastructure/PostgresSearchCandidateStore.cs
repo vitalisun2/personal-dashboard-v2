@@ -169,7 +169,7 @@ internal sealed class PostgresSearchCandidateStore(
 
     private static double ParseSimilarity(string? configured)
     {
-        if (!double.TryParse(configured, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)) return 0.3;
+        if (!double.TryParse(configured, NumberStyles.Float, CultureInfo.InvariantCulture, out var value)) return 0.55;
         return Math.Clamp(value, -1, 1);
     }
 
