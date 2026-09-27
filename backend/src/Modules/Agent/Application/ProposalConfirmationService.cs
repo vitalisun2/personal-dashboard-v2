@@ -147,10 +147,40 @@ public sealed class ProposalConfirmationService(
                 StringValue(payload.RootElement, "title"), StringValue(payload.RootElement, "description"), PlanningLinkValue(payload.RootElement),
                 StringValue(payload.RootElement, "placement"), StringValue(payload.RootElement, "workStatus"), GuidValue(payload.RootElement, "sectionId"),
                 StringValue(payload.RootElement, "bucket"), OrderValue(payload.RootElement));
+            if (kind == TaskEntityKind.Task && operation == ChangeOperation.Create)
+                await ValidateTaskCreationTargetAsync(payload.RootElement, mutation, cancellationToken);
             var result = await tasks.ApplyAsync(mutation, cancellationToken);
             return new(result.Applied, result.Current, result.ConflictReason);
         }
         throw new InvalidDataException($"Unsupported entity type '{action.EntityType}'.");
+    }
+
+    private async Task ValidateTaskCreationTargetAsync(JsonElement payload, TaskMutation mutation, CancellationToken cancellationToken)
+    {
+        if (mutation.Planning?.FeatureId is { } featureId)
+        {
+            var projectId = mutation.Planning.ProjectId ?? throw new InvalidOperationException("Задача с фичей должна содержать проект.");
+            var milestoneId = mutation.Planning.MilestoneId ?? throw new InvalidOperationException("Задача с фичей должна содержать этап.");
+            var project = await planning.ReadAsync(PlanningEntityKind.Project, projectId, cancellationToken);
+            var milestone = await planning.ReadAsync(PlanningEntityKind.Milestone, milestoneId, cancellationToken);
+            var feature = await planning.ReadAsync(PlanningEntityKind.Feature, featureId, cancellationToken);
+            var expectedPath = StringValue(payload, "featurePath");
+            if (project is null || project.Archived || milestone is null || feature is null ||
+                milestone.ProjectId != projectId || feature.ProjectId != projectId || feature.MilestoneId != milestoneId ||
+                project.Version != LongValue(payload, "expectedProjectVersion") ||
+                milestone.Version != LongValue(payload, "expectedMilestoneVersion") ||
+                feature.Version != LongValue(payload, "expectedFeatureVersion") ||
+                !string.Equals($"{project.Title} / {milestone.Title} / {feature.Title}", expectedPath, StringComparison.Ordinal))
+                throw new InvalidOperationException("Выбранная фича, её этап или проект изменились либо больше недоступны. Подготовьте задачу заново.");
+            return;
+        }
+
+        var sectionId = mutation.SectionId ?? throw new InvalidOperationException("Для задачи Backlog нужен существующий раздел.");
+        var expectedSections = await tasks.ListBacklogSectionsAsync(cancellationToken);
+        var section = expectedSections.SingleOrDefault(item => item.Id == sectionId);
+        if (section is null || section.Name != StringValue(payload, "backlogSectionName") ||
+            section.Version != LongValue(payload, "expectedBacklogSectionVersion"))
+            throw new InvalidOperationException("Выбранный раздел Backlog изменился или больше недоступен. Подготовьте задачу заново.");
     }
 
     private Task<object?> ReadCurrentAsync(ChatProposedAction action, CancellationToken cancellationToken) => action.EntityType switch

@@ -138,11 +138,44 @@ function proposalStatusLabel(turn: ChatTurn): string {
     case 'Pending': return 'ожидает подтверждения'
     case 'Stale': return 'устарело, требуется новый просмотр'
     case 'Expired': return 'срок действия истёк'
-    case 'Applied': return turn.changes?.some(change => change.entityType === 'knowledge.document')
-      ? 'Документ создан' : 'Изменения применены'
+    case 'Applied': {
+      if (turn.changes?.some(change => change.entityType === 'knowledge.document')) return 'Документ создан'
+      const task = turn.changes?.find(change => change.entityType === 'tasks.task')
+      return task ? taskSuccessLabel(task) : 'Изменения применены'
+    }
     case 'Dismissed': return 'отменено'
     default: return 'статус неизвестен'
   }
+}
+function taskDestination(change: { after: Record<string, unknown> }): { confirm: string; success: string } {
+  const after = change.after
+  const planning = after.planning && typeof after.planning === 'object' && !Array.isArray(after.planning)
+    ? after.planning as Record<string, unknown> : null
+  const placement = typeof after.placement === 'string' ? after.placement.toLowerCase() : ''
+  if (placement === 'planned') {
+    return { confirm: 'Добавить в план', success: 'Задача добавлена в план' }
+  }
+  if (placement === 'today') {
+    return { confirm: 'Добавить на сегодня', success: 'Задача добавлена на сегодня' }
+  }
+  if (placement === 'backlog') {
+    return { confirm: 'Добавить в бэклог', success: 'Задача добавлена в бэклог' }
+  }
+  if (planning && Object.values(planning).some(value => value !== null && value !== undefined && value !== '')) {
+    return { confirm: 'Добавить в план', success: 'Задача добавлена в план' }
+  }
+  return {
+    confirm: 'Добавить в бэклог',
+    success: 'Задача добавлена в бэклог',
+  }
+}
+function taskSuccessLabel(change: { after: Record<string, unknown> }): string {
+  return taskDestination(change).success
+}
+function proposalConfirmLabel(turn: ChatTurn): string {
+  const task = turn.changes?.find(change => change.entityType === 'tasks.task')
+  if (task) return taskDestination(task).confirm
+  return turn.changes?.some(change => change.entityType === 'knowledge.document') ? 'Создать документ' : 'Подтвердить'
 }
 function searchCoverageNote(turn: ChatTurn): string {
   // Saved search turns contain server diagnostics from both search passes.
@@ -209,9 +242,10 @@ watch(input, () => { void nextTick(resizeInput) })
                 <strong>{{ change.displayName }}</strong>
                 <p>{{ change.preview }}</p>
                 <a v-if="turn.proposalStatus === 'Applied' && change.entityType === 'knowledge.document'" :href="`/knowledge/${change.entityId}`">Открыть документ</a>
+                <a v-if="turn.proposalStatus === 'Applied' && change.entityType === 'tasks.task'" :href="`/tasks/${change.entityId}`">Открыть задачу</a>
               </div>
               <div v-if="turn.proposalStatus === 'Pending'" class="proposal-actions">
-                <button type="button" class="confirm-button" :disabled="busy" @click="actOnProposal(turn, true)">{{ turn.changes.some(change => change.entityType === 'knowledge.document') ? 'Создать документ' : 'Подтвердить' }}</button>
+                <button type="button" class="confirm-button" :disabled="busy" @click="actOnProposal(turn, true)">{{ proposalConfirmLabel(turn) }}</button>
                 <button type="button" class="proposal-dismiss" :disabled="busy" @click="actOnProposal(turn, false)">Отменить</button>
               </div>
             </div>

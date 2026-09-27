@@ -2,8 +2,12 @@ using System.Text.Json;
 using PersonalDashboard.V2.Agent.Application;
 using PersonalDashboard.V2.Contracts.AgentAccess;
 using PersonalDashboard.V2.Contracts.Chat;
+using PersonalDashboard.V2.Contracts.Planning;
 using PersonalDashboard.V2.Contracts.Search;
 using PersonalDashboard.V2.Contracts.Transactions;
+using PersonalDashboard.V2.Tasks.Application;
+using PersonalDashboard.V2.Tasks.Domain;
+using PersonalDashboard.V2.Tasks.Infrastructure;
 using Xunit;
 
 namespace PersonalDashboard.V2.Agent.Tests;
@@ -18,7 +22,7 @@ public sealed class ProposalConfirmationTests
             payload, "Позвонить", null, payload)]);
         var context = ProposalDraftContext.ToMessage(draft).Content;
         Assert.Contains("Позвонить", context);
-        Assert.Contains("Подтвердить", context);
+        Assert.Contains("кнопку добавления", context);
         Assert.DoesNotContain("prepare_knowledge_document", context);
         Assert.DoesNotContain("Создать документ", context);
     }
@@ -176,14 +180,16 @@ public sealed class ProposalConfirmationTests
         Assert.Equal("Работа / Заметки", payload.RootElement.GetProperty("parentSectionPath").GetString());
     }
 
-    [Fact]
-    public async Task Flat_document_tool_infers_section_from_catalog_and_keeps_empty_body()
+    [Theory]
+    [InlineData(null)]
+    [InlineData("Добавь документ «Поездка в Казань».")]
+    public async Task Flat_document_tool_infers_section_from_catalog_and_keeps_empty_body(string? quote)
     {
         var sectionId = Guid.NewGuid();
         var section = new KnowledgeNodeState(KnowledgeNodeKind.Section, sectionId, null, 3, "Поездки", null, "Личное / Поездки", false, 0);
         var calls = new Queue<ModelCompletion>([
             new(null, [new ModelToolCall("sections", "list_knowledge_sections", "{}")]),
-            PrepareDocumentCall("""{"title":"Поездка в Казань","markdown":"","section":"Личное / Поездки","section_quote":null,"reason":"документ о поездке"}""")
+            PrepareDocumentCall(JsonSerializer.Serialize(new { title = "Поездка в Казань", markdown = "", section = "Личное / Поездки", section_quote = quote, reason = "документ о поездке" }))
         ]);
 
         var result = await CreateDocumentService(calls, [section]).RespondAsync(Request("Добавь документ «Поездка в Казань»."));
@@ -354,6 +360,99 @@ public sealed class ProposalConfirmationTests
         Assert.Empty(transactions.Writes);
     }
 
+    [Theory]
+    [InlineData(2, "Продукт")]
+    [InlineData(1, "Продукт нового названия")]
+    public async Task Task_confirmation_rejects_changed_feature_chain_before_applying(long currentProjectVersion, string currentProjectTitle)
+    {
+        var projectId = Guid.NewGuid();
+        var milestoneId = Guid.NewGuid();
+        var featureId = Guid.NewGuid();
+        var store = new Store();
+        var transactions = new RollbackRunner();
+        var tasks = new CountingTasks();
+        var planning = new PlanningStates(
+            new PlanningEntityState(PlanningEntityKind.Project, projectId, null, null, currentProjectVersion, currentProjectTitle, null, null, false, 0),
+            new PlanningEntityState(PlanningEntityKind.Milestone, milestoneId, projectId, null, 1, "Безопасность", null, null, false, 0),
+            new PlanningEntityState(PlanningEntityKind.Feature, featureId, projectId, milestoneId, 1, "Авторизация", null, "planned", false, 0));
+        var service = new ProposalConfirmationService(store, transactions, new KnowledgeAccess([]), planning, tasks);
+        var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            title = "Проверить вход", description = "", placement = "planned",
+            planning = new { projectId, milestoneId, featureId },
+            featurePath = "Продукт / Безопасность / Авторизация",
+            expectedProjectVersion = 1, expectedMilestoneVersion = 1, expectedFeatureVersion = 1,
+            taskPlacementReason = "test"
+        })).RootElement.Clone();
+        store.Proposal = Proposal([new ChatProposedAction(Guid.NewGuid(), "tasks.task", Guid.NewGuid(), "Create", null,
+            payload, "Проверить вход", null, payload)]);
+
+        var result = await service.ConfirmAsync(store.Proposal.Id, Guid.NewGuid());
+
+        Assert.False(result.Applied);
+        Assert.True(result.Stale);
+        Assert.Equal(0, tasks.ApplyCalls);
+    }
+
+    [Fact]
+    public async Task Task_confirmation_rejects_changed_backlog_section_version_before_applying()
+    {
+        var sectionId = Guid.NewGuid();
+        var store = new Store();
+        var tasks = new CountingTasks([new TaskBacklogSection(sectionId, "Покупки", 2)]);
+        var service = new ProposalConfirmationService(store, new RollbackRunner(), new KnowledgeAccess([]), new EmptyPlanning(), tasks);
+        var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            title = "Купить билеты", description = "", placement = "backlog", sectionId,
+            backlogSectionName = "Покупки", expectedBacklogSectionVersion = 1,
+            featurePath = (string?)null, taskPlacementReason = "test"
+        })).RootElement.Clone();
+        store.Proposal = Proposal([new ChatProposedAction(Guid.NewGuid(), "tasks.task", Guid.NewGuid(), "Create", null,
+            payload, "Купить билеты", null, payload)]);
+
+        var result = await service.ConfirmAsync(store.Proposal.Id, Guid.NewGuid());
+
+        Assert.False(result.Applied);
+        Assert.True(result.Stale);
+        Assert.Equal(0, tasks.ApplyCalls);
+    }
+
+    [Fact]
+    public async Task Fake_transaction_boundary_rolls_back_task_create_when_linked_backlog_move_fails()
+    {
+        var projectId = Guid.NewGuid();
+        var milestoneId = Guid.NewGuid();
+        var featureId = Guid.NewGuid();
+        var sectionId = Guid.NewGuid();
+        var repository = new FailingTaskRepository(sectionId) { FailOnSaveAttempt = 2 };
+        var transactions = new SnapshotTransactionRunner(repository);
+        var taskAccess = new TasksAgentAccess(new TasksService(repository, new ValidPlanningLinks(), transactions));
+        var store = new Store();
+        var planning = new PlanningStates(
+            new PlanningEntityState(PlanningEntityKind.Project, projectId, null, null, 1, "Продукт", null, null, false, 0),
+            new PlanningEntityState(PlanningEntityKind.Milestone, milestoneId, projectId, null, 1, "Безопасность", null, null, false, 0),
+            new PlanningEntityState(PlanningEntityKind.Feature, featureId, projectId, milestoneId, 1, "Авторизация", null, "planned", false, 0));
+        var service = new ProposalConfirmationService(store, transactions, new KnowledgeAccess([]), planning, taskAccess);
+        var payload = JsonDocument.Parse(JsonSerializer.Serialize(new
+        {
+            title = "Проверить вход", description = "", placement = "backlog",
+            planning = new { projectId, milestoneId, featureId },
+            featurePath = "Продукт / Безопасность / Авторизация",
+            expectedProjectVersion = 1, expectedMilestoneVersion = 1, expectedFeatureVersion = 1,
+            taskPlacementReason = "Сразу в Backlog по просьбе пользователя."
+        })).RootElement.Clone();
+        store.Proposal = Proposal([new ChatProposedAction(Guid.NewGuid(), "tasks.task", Guid.NewGuid(), "Create", null,
+            payload, "Проверить вход", null, payload)]);
+
+        var result = await service.ConfirmAsync(store.Proposal.Id, Guid.NewGuid());
+
+        Assert.False(result.Applied);
+        Assert.True(result.Stale);
+        Assert.Equal(1, transactions.RollbackCount);
+        Assert.Empty(repository.Items);
+        Assert.Equal(ChatProposalState.Dismissed, store.Proposal.State);
+    }
+
     [Fact]
     public async Task Turn_without_ready_replacement_preserves_pending_draft_for_revision_or_unrelated_question()
     {
@@ -477,12 +576,71 @@ public sealed class ProposalConfirmationTests
 
     private sealed class EmptyPlanning : IPlanningAgentAccess
     {
+        public Task<IReadOnlyList<TaskFeatureTarget>> ListTaskFeaturesAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskFeatureTarget>>([]);
         public Task<PlanningEntityState?> ReadAsync(PlanningEntityKind kind, Guid id, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<PlanningMutationResult> ApplyAsync(PlanningMutation mutation, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     }
 
+    private sealed class PlanningStates(params PlanningEntityState[] states) : IPlanningAgentAccess
+    {
+        public Task<IReadOnlyList<TaskFeatureTarget>> ListTaskFeaturesAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskFeatureTarget>>([]);
+        public Task<PlanningEntityState?> ReadAsync(PlanningEntityKind kind, Guid id, CancellationToken cancellationToken = default) =>
+            Task.FromResult(states.SingleOrDefault(state => state.Kind == kind && state.Id == id));
+        public Task<PlanningMutationResult> ApplyAsync(PlanningMutation mutation, CancellationToken cancellationToken = default) => throw new NotImplementedException();
+    }
+
+    private sealed class CountingTasks(IReadOnlyList<TaskBacklogSection>? sections = null) : ITasksAgentAccess
+    {
+        private readonly IReadOnlyList<TaskBacklogSection> _sections = sections ?? [];
+        public int ApplyCalls { get; private set; }
+        public Task<IReadOnlyList<TaskBacklogSection>> ListBacklogSectionsAsync(CancellationToken cancellationToken = default) => Task.FromResult(_sections);
+        public Task<TaskEntityState?> ReadAsync(TaskEntityKind kind, Guid id, CancellationToken cancellationToken = default) => Task.FromResult<TaskEntityState?>(null);
+        public Task<TaskMutationResult> ApplyAsync(TaskMutation mutation, CancellationToken cancellationToken = default) { ApplyCalls++; return Task.FromResult(new TaskMutationResult(true, null, null)); }
+    }
+
+    private sealed class ValidPlanningLinks : IPlanningLinkValidator
+    {
+        public Task<PlanningLinkValidationResult> ValidateAsync(PlanningLink link, CancellationToken cancellationToken = default) =>
+            Task.FromResult(new PlanningLinkValidationResult(true, []));
+    }
+    private sealed class SnapshotTransactionRunner(FailingTaskRepository repository) : ITransactionRunner
+    {
+        public int RollbackCount { get; private set; }
+        public async Task ExecuteAsync(Func<CancellationToken, Task> operation, CancellationToken cancellationToken = default) =>
+            await ExecuteAsync(async ct => { await operation(ct); return true; }, cancellationToken);
+        public async Task<TResult> ExecuteAsync<TResult>(Func<CancellationToken, Task<TResult>> operation, CancellationToken cancellationToken = default)
+        {
+            var snapshot = repository.Snapshot();
+            try { return await operation(cancellationToken); }
+            catch { RollbackCount++; repository.Restore(snapshot); throw; }
+        }
+    }
+    private sealed class FailingTaskRepository(Guid backlogSectionId) : ITasksRepository
+    {
+        private readonly Dictionary<Guid, TaskItem> _items = [];
+        private readonly Dictionary<Guid, TaskSection> _sections = new() { [backlogSectionId] = new TaskSection("Общее", TaskLocation.Backlog, backlogSectionId) };
+        private int _saveAttempts;
+        public int FailOnSaveAttempt { get; init; }
+        public IReadOnlyCollection<TaskItem> Items => _items.Values.ToArray();
+        public Dictionary<Guid, TaskItem> Snapshot() => new(_items);
+        public void Restore(Dictionary<Guid, TaskItem> snapshot) { _items.Clear(); foreach (var pair in snapshot) _items.Add(pair.Key, pair.Value); }
+        public Task<IReadOnlyList<TaskItem>> ListAsync(TaskLocation? location, CancellationToken ct) => Task.FromResult<IReadOnlyList<TaskItem>>(_items.Values.Where(item => location is null || item.Location == location).ToArray());
+        public Task<TaskItem?> GetAsync(Guid id, CancellationToken ct) => Task.FromResult(_items.GetValueOrDefault(id));
+        public Task SaveAsync(TaskItem item, CancellationToken ct)
+        {
+            if (++_saveAttempts == FailOnSaveAttempt) throw new InvalidOperationException("simulated second-write failure");
+            _items[item.Id] = item;
+            return Task.CompletedTask;
+        }
+        public Task DeleteAsync(Guid id, CancellationToken ct) { _items.Remove(id); return Task.CompletedTask; }
+        public Task<IReadOnlyList<TaskSection>> ListSectionsAsync(TaskLocation location, CancellationToken ct) => Task.FromResult<IReadOnlyList<TaskSection>>(_sections.Values.Where(section => section.Location == location).ToArray());
+        public Task SaveSectionAsync(TaskSection section, CancellationToken ct) { _sections[section.Id] = section; return Task.CompletedTask; }
+        public Task DeleteSectionAsync(Guid id, CancellationToken ct) { _sections.Remove(id); return Task.CompletedTask; }
+    }
+
     private sealed class EmptyTasks : ITasksAgentAccess
     {
+        public Task<IReadOnlyList<TaskBacklogSection>> ListBacklogSectionsAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskBacklogSection>>([]);
         public Task<TaskEntityState?> ReadAsync(TaskEntityKind kind, Guid id, CancellationToken cancellationToken = default) => throw new NotImplementedException();
         public Task<TaskMutationResult> ApplyAsync(TaskMutation mutation, CancellationToken cancellationToken = default) => throw new NotImplementedException();
     }

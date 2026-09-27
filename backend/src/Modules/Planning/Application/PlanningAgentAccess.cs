@@ -5,6 +5,18 @@ namespace PersonalDashboard.V2.Planning.Application;
 
 public sealed class PlanningAgentAccess(PlanningService planning) : IPlanningAgentAccess
 {
+    public async Task<IReadOnlyList<TaskFeatureTarget>> ListTaskFeaturesAsync(CancellationToken cancellationToken = default)
+    {
+        var projects = await planning.ListAsync(includeArchived: true, cancellationToken);
+        return projects.Where(project => !project.IsArchived)
+            .SelectMany(project => project.Milestones.SelectMany(milestone => milestone.Features.Select(feature =>
+                new TaskFeatureTarget(project.Id, project.Title, project.Version,
+                    milestone.Id, milestone.Title, milestone.Version,
+                    feature.Id, feature.Title, feature.Version,
+                    $"{project.Title} / {milestone.Title} / {feature.Title}"))))
+            .ToArray();
+    }
+
     public async Task<PlanningEntityState?> ReadAsync(PlanningEntityKind kind, Guid id, CancellationToken ct = default)
     {
         if (kind == PlanningEntityKind.Project) return (await planning.GetAsync(id, ct)) is { } p ? ProjectState(p) : null;

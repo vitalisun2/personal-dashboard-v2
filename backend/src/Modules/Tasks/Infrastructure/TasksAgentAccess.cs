@@ -11,6 +11,10 @@ namespace PersonalDashboard.V2.Tasks.Infrastructure;
 
 public sealed class TasksAgentAccess(TasksService service) : ITasksAgentAccess
 {
+    public async Task<IReadOnlyList<TaskBacklogSection>> ListBacklogSectionsAsync(CancellationToken ct = default) =>
+        (await service.SectionsAsync(TaskLocation.Backlog, ct))
+            .Select(section => new TaskBacklogSection(section.Id, section.Name, section.Version)).ToArray();
+
     public async Task<TaskEntityState?> ReadAsync(TaskEntityKind kind, Guid id, CancellationToken ct = default)
     {
         if (kind == TaskEntityKind.Task)
@@ -59,9 +63,10 @@ public sealed class TasksAgentAccess(TasksService service) : ITasksAgentAccess
         TaskView item;
         if (mutation.Operation == TaskMutationKind.Create)
         {
+            var requestedPlacement = mutation.Placement?.ToLowerInvariant();
             item = await service.CreateAsync(mutation.Title ?? "", mutation.Description,
                 mutation.Planning?.ProjectId, mutation.Planning?.MilestoneId, mutation.Planning?.FeatureId,
-                sectionId: null, ct, mutation.Id);
+                sectionId: mutation.Planning?.FeatureId is null && requestedPlacement != "today" ? mutation.SectionId : null, ct, mutation.Id);
         }
         else
         {
@@ -73,8 +78,10 @@ public sealed class TasksAgentAccess(TasksService service) : ITasksAgentAccess
             item = await service.MoveToTodayAsync(item.Id, item.Version, ct);
         else if (placement == "backlog" && item.Location is TaskLocation.Today or TaskLocation.Planned)
             item = await service.MoveToBacklogAsync(item.Id, item.Version, ct);
-        else if (placement is not null && placement is not ("backlog" or "today"))
-            throw new ArgumentException("A compatible task placement must be backlog or today.");
+        else if (placement == "planned" && item.Location != TaskLocation.Planned)
+            throw new ArgumentException("Planned placement requires a linked feature.");
+        else if (placement is not null && placement is not ("backlog" or "today" or "planned"))
+            throw new ArgumentException("A compatible task placement must be planned, backlog or today.");
 
         if (mutation.SectionId is { } sectionId && item.SectionId != sectionId)
             item = await service.SetSectionAsync(item.Id, item.Version, sectionId, ct);

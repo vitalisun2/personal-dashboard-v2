@@ -38,9 +38,13 @@ internal static class KnowledgeDocumentPreparation
         var explicitlyRequested = quote is not null && request.RecentMessages
             .Where(message => message.Role == "user").Select(message => message.Content).Append(request.Prompt)
             .Any(text => text.Contains(quote, StringComparison.OrdinalIgnoreCase));
+        var sections = await knowledge.ListSectionsAsync(cancellationToken);
+        // A quote of the document request alone does not make an inferred location explicit.
+        explicitlyRequested = explicitlyRequested && (sections.Any(candidate =>
+            quote!.Contains(candidate.Title, StringComparison.OrdinalIgnoreCase) || quote.Contains(candidate.Path, StringComparison.OrdinalIgnoreCase))
+            || quote!.Contains("корень", StringComparison.OrdinalIgnoreCase) || quote.Contains("корне", StringComparison.OrdinalIgnoreCase));
         if (!explicitlyRequested && !catalogLoaded && !samePlacement)
             throw new InvalidDataException("Сначала вызови list_knowledge_sections, затем предложи подходящий раздел или корень. Не спрашивай пользователя, куда положить документ.");
-        var sections = await knowledge.ListSectionsAsync(cancellationToken);
         KnowledgeNodeState? section = null;
         if (selectedPath is not null)
         {

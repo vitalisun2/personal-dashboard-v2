@@ -58,7 +58,7 @@ export interface ChatProposedChange {
   displayName: string
   preview: string
   before?: unknown
-  after: unknown
+  after: Record<string, unknown>
 }
 
 export interface ChatConversation {

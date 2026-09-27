@@ -292,6 +292,7 @@ public sealed class AgentTurnRoutingTests
 
     private sealed class EmptyPlanning : IPlanningAgentAccess
     {
+        public Task<IReadOnlyList<TaskFeatureTarget>> ListTaskFeaturesAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskFeatureTarget>>([]);
         public Task<PlanningEntityState?> ReadAsync(PlanningEntityKind kind, Guid id, CancellationToken cancellationToken = default) =>
             throw new NotImplementedException();
         public Task<PlanningMutationResult> ApplyAsync(PlanningMutation mutation, CancellationToken cancellationToken = default) =>
@@ -299,6 +300,7 @@ public sealed class AgentTurnRoutingTests
     }
     private sealed class EmptyTasks : ITasksAgentAccess
     {
+        public Task<IReadOnlyList<TaskBacklogSection>> ListBacklogSectionsAsync(CancellationToken cancellationToken = default) => Task.FromResult<IReadOnlyList<TaskBacklogSection>>([]);
         public Task<TaskEntityState?> ReadAsync(TaskEntityKind kind, Guid id, CancellationToken cancellationToken = default) =>
             throw new NotImplementedException();
         public Task<TaskMutationResult> ApplyAsync(TaskMutation mutation, CancellationToken cancellationToken = default) =>

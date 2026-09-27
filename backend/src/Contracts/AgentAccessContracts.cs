@@ -76,6 +76,7 @@ public sealed record PlanningMutationResult(bool Applied, PlanningEntityState? C
 
 public interface IPlanningAgentAccess
 {
+    Task<IReadOnlyList<TaskFeatureTarget>> ListTaskFeaturesAsync(CancellationToken cancellationToken = default);
     Task<PlanningEntityState?> ReadAsync(
         PlanningEntityKind kind,
         Guid id,
@@ -85,6 +86,12 @@ public interface IPlanningAgentAccess
         PlanningMutation mutation,
         CancellationToken cancellationToken = default);
 }
+
+public sealed record TaskFeatureTarget(
+    Guid ProjectId, string ProjectTitle, long ProjectVersion,
+    Guid MilestoneId, string MilestoneTitle, long MilestoneVersion,
+    Guid FeatureId, string FeatureTitle, long FeatureVersion,
+    string Path);
 
 public enum TaskEntityKind { Task, Section }
 public enum TaskMutationKind { Create, Update, Move, SetWorkStatus, Archive, Restore, Delete, Reorder }
@@ -120,6 +127,7 @@ public sealed record TaskMutationResult(bool Applied, TaskEntityState? Current, 
 
 public interface ITasksAgentAccess
 {
+    Task<IReadOnlyList<TaskBacklogSection>> ListBacklogSectionsAsync(CancellationToken cancellationToken = default);
     Task<TaskEntityState?> ReadAsync(
         TaskEntityKind kind,
         Guid id,
@@ -129,3 +137,5 @@ public interface ITasksAgentAccess
         TaskMutation mutation,
         CancellationToken cancellationToken = default);
 }
+
+public sealed record TaskBacklogSection(Guid Id, string Name, long Version);

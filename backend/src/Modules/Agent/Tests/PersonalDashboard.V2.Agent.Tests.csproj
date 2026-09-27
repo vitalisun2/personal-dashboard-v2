@@ -14,6 +14,9 @@
     <ProjectReference Include="..\Application\PersonalDashboard.V2.Agent.Application.csproj" />
     <ProjectReference Include="..\Infrastructure\PersonalDashboard.V2.Agent.Infrastructure.csproj" />
     <ProjectReference Include="..\Api\PersonalDashboard.V2.Agent.Api.csproj" />
+    <ProjectReference Include="..\..\Tasks\Application\PersonalDashboard.V2.Tasks.Application.csproj" />
+    <ProjectReference Include="..\..\Tasks\Domain\PersonalDashboard.V2.Tasks.Domain.csproj" />
+    <ProjectReference Include="..\..\Tasks\Infrastructure\PersonalDashboard.V2.Tasks.Infrastructure.csproj" />
   </ItemGroup>
   <ItemGroup><FrameworkReference Include="Microsoft.AspNetCore.App" /></ItemGroup>
 </Project>
