@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 import { subscribeSyncStatus, type SyncStatus } from '../offline/runtime'
+import AppearanceSettings from './AppearanceSettings.vue'
 
 const route = useRoute()
 const navigation = [
@@ -106,6 +107,7 @@ onUnmounted(() => {
           <RouterLink class="chat-head-btn" :to="{ path: '/chat', query: { area: chatArea } }" aria-label="Открыть чат с агентом" title="Чат с агентом">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17.2 4 20v-4.9A7.4 7.4 0 0 1 3 11.4C3 7.3 6.8 4 11.5 4S20 7.3 20 11.4s-3.8 7.4-8.5 7.4c-1.6 0-3.1-.4-4.3-1.1Z"/><path d="m16.9 2.7.45 1.15 1.15.45-1.15.45-.45 1.15-.45-1.15-1.15-.45 1.15-.45.45-1.15Z"/></svg>
           </RouterLink>
+          <AppearanceSettings />
           <span class="sync-status" :data-status="syncStatus" aria-live="polite">{{ syncStatus }}</span>
         </header>
         <div class="page-content"><RouterView /></div>

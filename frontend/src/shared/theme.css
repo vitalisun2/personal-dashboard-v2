@@ -1,0 +1,67 @@
+/* Neutral surfaces inspired by ChatGPT; semantic colors stay distinct in both modes. */
+:root {
+  color-scheme: dark;
+  --bg: #212121;
+  --canvas: #171717;
+  --surface: #2f2f2f;
+  --surface-2: #383838;
+  --surface-hover: #424242;
+  --text: #ececec;
+  --text-secondary: #cdcdcd;
+  --muted: #ababab;
+  --line: #454545;
+  --line-strong: #686868;
+  --accent: #8ab4f8;
+  --accent-surface: #29394f;
+  --primary: #ececec;
+  --on-primary: #212121;
+  --danger: #ffaba3;
+  --danger-surface: #3d2928;
+  --danger-line: #75423e;
+  --success: #91d5af;
+  --success-surface: #25362d;
+  --success-line: #436650;
+  --warning: #f2c779;
+  --warning-surface: #3c3323;
+  --warning-line: #78613c;
+  --highlight: #51472a;
+  --highlight-blue: #314360;
+  --overlay: rgb(0 0 0 / 55%);
+  --row-hover: rgb(255 255 255 / 4%);
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #ffffff;
+  --canvas: #f7f7f8;
+  --surface: #f5f5f5;
+  --surface-2: #ececec;
+  --surface-hover: #e3e3e3;
+  --text: #202020;
+  --text-secondary: #454545;
+  --muted: #666666;
+  --line: #dedede;
+  --line-strong: #909090;
+  --accent: #245fa8;
+  --accent-surface: #e6effb;
+  --primary: #212121;
+  --on-primary: #ffffff;
+  --danger: #aa302b;
+  --danger-surface: #fff0ee;
+  --danger-line: #e6bbb6;
+  --success: #246c42;
+  --success-surface: #eaf5ed;
+  --success-line: #b4d5bd;
+  --warning: #805414;
+  --warning-surface: #fff5e3;
+  --warning-line: #dfc99f;
+  --highlight: #ffedb2;
+  --highlight-blue: #dceaff;
+  --overlay: rgb(0 0 0 / 32%);
+  --row-hover: rgb(0 0 0 / 4%);
+}
+
+/* Apply to the page as well as overlays and drag previews outside the shell. */
+html, body { background: var(--canvas); color: var(--text); }
+.phone-shell { background: var(--bg); }
+.phone-shell .heading { font-size: clamp(24px, 7.3vw, 30px); }

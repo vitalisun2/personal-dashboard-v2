@@ -2,12 +2,12 @@
    The mockup .planning-* theme (toolbar, picker, rows, detail, sheet, order mode,
    context menu, confirm layer) lives in shared/styles.css under .phone-shell. */
 .planning-section.planning-page { position: static; }
-.phone-shell .planning-feature-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 12px; color: #9baab7; font-size: 12px; line-height: 1.5; }
+.phone-shell .planning-feature-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .phone-shell .planning-feature-progress > span:first-child { flex-basis: 100%; }
 .phone-shell .planning-feature-excluded { flex-basis: 100%; font-size: 11px; }
-.phone-shell .planning-feature-completed { color: #8bc9a6; }
-.phone-shell .planning-feature-complete { padding: 9px 14px; border: 1px solid rgba(139,201,166,.25); border-radius: 10px; background: rgba(139,201,166,.12); color: #a2dfbc; font: inherit; font-weight: 650; cursor: pointer; }
-.phone-shell .planning-feature-reopen { padding: 0; border: 0; background: transparent; color: #9baab7; font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.phone-shell .planning-feature-completed { color: var(--success); }
+.phone-shell .planning-feature-complete { padding: 9px 14px; border: 1px solid rgba(139,201,166,.25); border-radius: 10px; background: rgba(139,201,166,.12); color: var(--success); font: inherit; font-weight: 650; cursor: pointer; }
+.phone-shell .planning-feature-reopen { padding: 0; border: 0; background: transparent; color: var(--muted); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .phone-shell .planning-feature-progress button:disabled { opacity: .5; cursor: wait; }
-.planning-error { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; padding: 11px 13px; border-radius: 10px; background: #382327; color: #e6a3aa; font-size: 13px; line-height: 1.45 }
+.planning-error { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; padding: 11px 13px; border-radius: 10px; background: var(--danger-surface); color: var(--danger); font-size: 13px; line-height: 1.45 }
 .planning-error button { flex: none; margin-left: auto; padding: 2px 6px; border: 0; background: transparent; color: inherit; font-size: 15px; line-height: 1; cursor: pointer }

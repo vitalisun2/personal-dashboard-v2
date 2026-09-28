@@ -4,6 +4,10 @@ import App from './app/App.vue'
 import { router } from './app/router'
 import { startSyncLifecycle } from './offline/runtime'
 import './shared/styles.css'
+import './shared/theme.css'
+import { applyTheme, readTheme } from './shared/theme'
+
+applyTheme(readTheme())
 
 registerSW({ immediate: true })
 startSyncLifecycle()
