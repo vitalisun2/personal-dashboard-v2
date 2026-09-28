@@ -34,7 +34,7 @@ const milestone = computed(() => project.value?.milestones.find(item => item.id 
 const feature = computed(() => milestone.value?.features.find(item => item.id === featureId.value) || null)
 const depth = computed(() => feature.value ? 3 : milestone.value ? 2 : project.value ? 1 : 0)
 const linkedTasks = computed(() => state.tasks.filter(item => item.featureId === featureId.value))
-const visibleTasks = computed(() => linkedTasks.value.filter(item => workLower(item.workStatus) !== 'done'))
+const visibleTasks = computed(() => linkedTasks.value.filter(item => workLower(item.workStatus) !== 'done').sort((a, b) => a.position - b.position))
 const taskProgress = computed(() => featureTaskProgress(linkedTasks.value))
 const plannedFeatureTasks = computed(() => linkedTasks.value.filter(item => taskState(item) === 'planned').sort((a, b) => a.position - b.position))
 const detailTask = computed(() => state.detailTaskId ? state.tasks.find(item => item.id === state.detailTaskId) || null : null)
@@ -583,13 +583,13 @@ function orderDragStart(event: PointerEvent, _id: string) {
 function commitOrderAtTarget(sourceId: string, targetId: string, after: boolean) {
   const ids = depth.value === 1 ? project.value?.milestones.map(item => item.id)
     : depth.value === 2 ? milestone.value?.features.map(item => item.id)
-      : depth.value === 3 ? linkedTasks.value.filter(item => taskState(item) === 'planned').map(item => item.id) : null
+      : depth.value === 3 ? plannedFeatureTasks.value.map(item => item.id) : null
   if (!ids?.includes(sourceId) || !ids.includes(targetId)) return
   const order = ids.filter(id => id !== sourceId)
   order.splice(order.indexOf(targetId) + (after ? 1 : 0), 0, sourceId)
   if (depth.value === 1) void commitPlanOrder('milestone', order)
   else if (depth.value === 2) void commitPlanOrder('feature', order)
-  else void commitTaskOrder(order)
+  else void commitTaskOrder(order, sourceId)
 }
 async function commitPlanOrder(type: 'milestone' | 'feature', ids: string[]) {
   if (!project.value) return
@@ -624,9 +624,9 @@ async function commitPlanOrder(type: 'milestone' | 'feature', ids: string[]) {
     state.error = (error as Error).message
   }
 }
-async function commitTaskOrder(ids: string[]) {
+async function commitTaskOrder(ids: string[], sourceId: string) {
   if (!project.value || !milestone.value || !feature.value) return
-  const tasks = linkedTasks.value.filter(x => taskState(x) === 'planned')
+  const tasks = plannedFeatureTasks.value
   if (ids.length !== tasks.length || ids.every((id, index) => id === tasks[index].id)) return
   const order = ids.map(id => { const item = tasks.find(t => t.id === id)!; return { id, expectedVersion: item.version } })
   try {
@@ -634,8 +634,7 @@ async function commitTaskOrder(ids: string[]) {
     await refresh()
   } catch (error) {
     if (error instanceof LocalMutation) {
-      const index = ids.findIndex((id, i) => tasks[i]?.id !== id)
-      const source = tasks.find(t => t.id === (ids[index] || ids[0]))!
+      const source = tasks.find(t => t.id === sourceId)!
       const local = { ...source, position: ids.indexOf(source.id), version: source.version + 1 }
       await queueTaskMutation(source, { operation: 'reorder', kind: 'task', id: source.id, placement: 'planned', planning: { projectId: project.value.id, milestoneId: milestone.value.id, featureId: feature.value.id }, order }, local)
       state.tasks = state.tasks.map(x => { const pos = ids.indexOf(x.id); return pos < 0 ? x : { ...x, position: pos, version: x.version + 1 } })
