@@ -35,7 +35,7 @@ export async function saveOfflineMutation(entity: OfflineEntity, operation: Sync
   const store = await getOfflineStore()
   await store.saveEntityAndQueue(entity, operation)
   setStatus('pending')
-  window.setTimeout(requestSync, 0)
+  if (navigator.onLine) window.setTimeout(requestSync, 0)
 }
 
 export function requestSync(): void {
@@ -80,7 +80,7 @@ async function runSync(): Promise<void> {
     if (await refreshOfflineSnapshots(store)) window.dispatchEvent(new Event('offline-data-updated'))
     setStatus((await store.listConflicts()).length ? 'conflict' : (await store.listPendingOperations()).length ? 'pending' : 'ready')
   } catch {
-    // Keep the IndexedDB queue intact. A later online/visibility/timer event retries.
+    // Keep the IndexedDB queue intact. Startup, section changes, or later edits retry it.
     setStatus('error')
   }
 }
@@ -89,13 +89,6 @@ export function startSyncLifecycle(): void {
   if (started) return
   started = true
   void navigator.storage?.persist?.().catch(() => false)
-  window.addEventListener('online', requestSync)
   window.addEventListener('offline', () => setStatus('offline'))
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible') requestSync()
-  })
-  window.setInterval(() => {
-    if (document.visibilityState === 'visible') requestSync()
-  }, 30_000)
   requestSync()
 }

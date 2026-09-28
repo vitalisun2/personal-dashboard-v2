@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { requestSync, subscribeSyncStatus, type SyncStatus } from '../../offline/runtime'
+import { subscribeSyncStatus, type SyncStatus } from '../../offline/runtime'
 import SearchHighlight from '../../shared/SearchHighlight.vue'
 import TextRangeHighlight from '../../shared/TextRangeHighlight.vue'
 import { search as searchIndexed, type SearchHit } from '../search/searchApi'
 import {
-  cacheServerKnowledge, getCachedKnowledge, getLocallyDeletedKnowledgeIds,
-  loadKnowledgeTree, queueKnowledgeDelete,
+  getCachedKnowledge, getLocallyDeletedKnowledgeIds, queueKnowledgeDelete,
   queueKnowledgeUpsert, queueKnowledgeReorder, searchKnowledge,
   type KnowledgeNode, type KnowledgeSearchResult,
 } from './knowledgeApi'
@@ -112,20 +111,9 @@ async function commitNode(node: KnowledgeNode, baseVersion: number | null) {
   nodes.value = nodes.value.some(item => item.id === node.id)
     ? nodes.value.map(item => item.id === node.id ? node : item)
     : [...nodes.value, node]
-  if (navigator.onLine) {
-    requestSync()
-  }
-
 }
 async function load() {
   try { nodes.value = await getCachedKnowledge() } catch (err) { setError(err) }
-  try {
-    if (navigator.onLine) {
-      const serverNodes = await loadKnowledgeTree()
-      await cacheServerKnowledge(serverNodes)
-      nodes.value = await getCachedKnowledge()
-    }
-  } catch { /* Background connectivity failures are represented by the shared sync status. */ }
 }
 function handleSyncStatus(status: SyncStatus) {
   if (status === 'ready' || status === 'conflict') {
@@ -176,7 +164,11 @@ watch(query, value => {
   scheduleSearch()
 })
 watch(documentId, id => { if (id && !nodes.value.some(node => node.id === id)) void load() })
-watch(documentId, () => { titleEditing.value = false; markdownEditing.value = false })
+watch([documentId, () => route.path.split('/')[1]], ([id, section], [previousId, previousSection]) => {
+  if (section !== 'knowledge' || previousSection !== 'knowledge' || id === previousId) return
+  titleEditing.value = false
+  markdownEditing.value = false
+})
 watch(createOpen, open => {
   if (!open) parentListOpen.value = false
   else void nextTick(() => nameField.value?.focus({ preventScroll: true }))
@@ -282,7 +274,6 @@ async function confirmDelete() {
     await queueKnowledgeDelete(deleteTarget.value)
     deleteTarget.value = null
     nodes.value = nodes.value.filter(node => node.id !== deletingId && !node.path.startsWith(`${deletePath} / `))
-    if (navigator.onLine) requestSync()
     if (documentId.value === deletingId || nodes.value.every(node => node.id !== documentId.value)) backToTree()
   } catch (err) { setError(err) } finally { busy.value = false }
 }

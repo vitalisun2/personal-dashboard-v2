@@ -643,7 +643,17 @@ async function commitTaskOrder(ids: string[]) {
   }
 }
 function onUnmountedCleanup() { dragCleanup?.(false); dragCleanup = null; window.clearTimeout(contextTarget?.timer || 0) }
-watch(() => route.fullPath, () => { state.detailTaskId = ''; state.orderMode = false; state.pickerOpen = false; closeContextMenu(); void refresh() })
+watch(() => route.fullPath, (nextPath, previousPath) => {
+  const nextSection = nextPath.split('/')[1]
+  const previousSection = previousPath.split('/')[1]
+  if (nextSection === 'planning' && previousSection === 'planning') {
+    state.detailTaskId = ''
+    state.orderMode = false
+    state.pickerOpen = false
+    closeContextMenu()
+  }
+  void refresh()
+})
 onMounted(() => {
   window.addEventListener('offline-data-updated', onOfflineDataUpdated)
   document.addEventListener('pointerdown', onDocumentPointerDown, true)

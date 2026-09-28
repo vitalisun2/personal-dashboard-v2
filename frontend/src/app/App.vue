@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
-import { subscribeSyncStatus, type SyncStatus } from '../offline/runtime'
+import { requestSync, subscribeSyncStatus, type SyncStatus } from '../offline/runtime'
 import AppearanceSettings from './AppearanceSettings.vue'
 import ConflictResolver from '../offline/ConflictResolver.vue'
 
@@ -13,6 +13,18 @@ const navigation = [
   { path: '/testing', label: 'Тестирование', icon: '◈' },
 ]
 const currentSection = computed(() => String(route.path.split('/')[1] || 'knowledge'))
+const lastRouteBySection = reactive(new Map<string, string>([[currentSection.value, route.fullPath]]))
+watch(() => route.fullPath, (nextPath, previousPath) => {
+  const nextSection = nextPath.split('/')[1] || 'knowledge'
+  const previousSection = previousPath.split('/')[1] || 'knowledge'
+  lastRouteBySection.set(previousSection, previousPath)
+  lastRouteBySection.set(nextSection, nextPath)
+  if (nextSection !== previousSection && ['knowledge', 'planning', 'tasks'].includes(nextSection)) requestSync()
+}, { flush: 'sync' })
+function destinationForSection(section: string) { return lastRouteBySection.get(section) || `/${section}` }
+function destinationForChat() {
+  return lastRouteBySection.get('chat') || { path: '/chat', query: { area: chatArea.value } }
+}
 const titles: Record<string, string> = { knowledge: 'База знаний', planning: 'Планирование', tasks: 'Задачи', chat: 'Агент', search: 'Поиск', testing: 'Тестирование' }
 const title = computed(() => titles[currentSection.value] || 'База знаний')
 const chatArea = computed(() => {
@@ -113,17 +125,23 @@ onUnmounted(() => {
             <div class="eyebrow">Personal OS</div>
             <h1 class="heading">{{ title }}</h1>
           </div>
-          <RouterLink class="chat-head-btn" :to="{ path: '/chat', query: { area: chatArea } }" aria-label="Открыть чат с агентом" title="Чат с агентом">
+          <RouterLink class="chat-head-btn" :to="destinationForChat()" aria-label="Открыть чат с агентом" title="Чат с агентом">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17.2 4 20v-4.9A7.4 7.4 0 0 1 3 11.4C3 7.3 6.8 4 11.5 4S20 7.3 20 11.4s-3.8 7.4-8.5 7.4c-1.6 0-3.1-.4-4.3-1.1Z"/><path d="m16.9 2.7.45 1.15 1.15.45-1.15.45-.45 1.15-.45-1.15-1.15-.45 1.15-.45.45-1.15Z"/></svg>
           </RouterLink>
           <AppearanceSettings />
         </header>
         <span class="sync-status" :data-status="syncStatus" aria-live="polite">{{ syncLabels[syncStatus] }}</span>
         <ConflictResolver />
-        <div class="page-content"><RouterView /></div>
+        <div class="page-content">
+          <RouterView v-slot="{ Component }">
+            <KeepAlive>
+              <component :is="Component" :key="currentSection" />
+            </KeepAlive>
+          </RouterView>
+        </div>
       </div>
       <nav v-if="!hideBottomNav" class="bottom-window" aria-label="Навигация">
-        <RouterLink v-for="item in navigation" :key="item.path" :to="item.path" class="bottom-item" :class="{ active: currentSection === item.path.slice(1) }">
+        <RouterLink v-for="item in navigation" :key="item.path" :to="destinationForSection(item.path.slice(1))" class="bottom-item" :class="{ active: currentSection === item.path.slice(1) }">
           <span class="nav-icon" aria-hidden="true">{{ item.icon }}</span><span>{{ item.label }}</span>
         </RouterLink>
       </nav>
