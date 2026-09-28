@@ -286,11 +286,11 @@ button { border: 0; background: transparent; cursor: pointer; }
 .phone-shell .tasks-section .task-icon-button{font-size:18px}
 .phone-shell .tasks-section .task-toolbar .plus{background:var(--surface);color:var(--text);font-size:23px;font-weight:500}
 .phone-shell .tasks-section .task-icon-button:active,.phone-shell .tasks-section .task-toolbar .plus:active{background:var(--surface-2);color:var(--text)}
-.phone-shell .tasks-section .task-filters{display:flex;gap:6px;overflow-x:auto;margin:0 0 12px;padding-bottom:2px;flex:none;scrollbar-width:none}
+.phone-shell .tasks-section .task-filters{display:flex;gap:3px;overflow-x:auto;margin:0 0 12px;padding-bottom:2px;flex:none;scrollbar-width:none}
 .phone-shell .tasks-section .task-filters::-webkit-scrollbar{display:none}
-.phone-shell .tasks-section .task-filter{min-height:34px;padding:0 10px;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--muted);font-size:12px;white-space:nowrap}
+.phone-shell .tasks-section .task-filter{min-height:34px;padding:0 6px;border:1px solid transparent;border-radius:10px;background:transparent;color:var(--muted);font-size:12px;white-space:nowrap}
 .phone-shell .tasks-section .task-filter.active{border-color:var(--line);color:var(--text);font-weight:650}
-.phone-shell .tasks-section .task-filter-dot{width:8px;height:8px;display:inline-block;margin-right:6px;border-radius:50%;vertical-align:0}
+.phone-shell .tasks-section .task-filter-dot{width:8px;height:8px;display:inline-block;margin-right:4px;border-radius:50%;vertical-align:0}
 .phone-shell .tasks-section .task-filter-dot.new{border:1px solid var(--muted)}
 .phone-shell .tasks-section .task-filter-dot.work{background:var(--accent)}
 .phone-shell .tasks-section .task-filter-dot.done{background:var(--success)}
