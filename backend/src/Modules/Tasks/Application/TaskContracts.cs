@@ -57,6 +57,23 @@ public sealed class TasksService(ITasksRepository repository, PersonalDashboard.
         item.SetSection(sectionId); await repository.SaveAsync(item, ct); return Map(item);
     }
 
+    public Task<TaskView> ReplaceAsync(Guid id, long expectedVersion, string title, string? description, PlanningLink? link,
+        TaskLocation location, TaskWorkStatus status, Guid? sectionId, int? position, string? archivedSectionName, CancellationToken ct)
+        => transaction.ExecuteAsync(async token =>
+        {
+            var item = await Required(id, token); Check(item.Version, expectedVersion);
+            if (link is not null && !(await planning.ValidateAsync(link, token)).IsValid) throw new InvalidPlanningLinkException();
+            if (sectionId is { } section)
+            {
+                var destination = await FindSection(section, token);
+                if (destination.Location != location) throw new ArgumentException("Task section must match its destination bucket.");
+            }
+            item.Replace(title, description, link?.ProjectId, link?.MilestoneId, link?.FeatureId, location, status,
+                sectionId, position ?? item.Position, archivedSectionName);
+            await repository.SaveAsync(item, token);
+            return Map(item);
+        }, ct);
+
     public async Task<TaskView> UpdateWithPlanningLinkAsync(Guid id, long expectedVersion, string? title, string? description, PlanningLink link, bool moveToPlanning, CancellationToken ct)
     {
         var item = await Required(id, ct); Check(item.Version, expectedVersion);

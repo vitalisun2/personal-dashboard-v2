@@ -57,6 +57,29 @@ public sealed class PlanningService(IPlanningRepository repository, ITaskPlannin
         var project = await Required(id, ct); Check(project.Version, expectedVersion); if (archived) project.Archive(); else project.Restore(); await repository.SaveAsync(project, ct); return Map(project);
     }
 
+    public Task<ProjectView> ReplaceProjectAsync(Guid id, long expectedVersion, string title, string? description, bool archived, CancellationToken ct)
+        => transaction.ExecuteAsync(async token =>
+        {
+            var project = await Required(id, token); Check(project.Version, expectedVersion);
+            project.Replace(title, description, archived);
+            await repository.SaveAsync(project, token);
+            await taskProjectionRefresh.RefreshAsync(new PlanningLink(id, null, null), token);
+            return Map(project);
+        }, ct);
+
+    public Task<ProjectView> ReplaceFeatureAsync(Guid projectId, Guid milestoneId, Guid featureId, long expectedVersion,
+        string title, string? description, FeatureStatus status, CancellationToken ct)
+        => transaction.ExecuteAsync(async token =>
+        {
+            var project = await Required(projectId, token);
+            var milestone = project.Milestones.Single(x => x.Id == milestoneId);
+            var feature = milestone.Features.Single(x => x.Id == featureId); Check(feature.Version, expectedVersion);
+            feature.Replace(title, description, status); milestone.RecordChildChange(); project.RecordChildChange();
+            await repository.SaveAsync(project, token);
+            await taskProjectionRefresh.RefreshAsync(new PlanningLink(projectId, milestoneId, featureId), token);
+            return Map(project);
+        }, ct);
+
     public async Task DeleteProjectAsync(Guid id, long expectedVersion, CancellationToken ct)
         => await transaction.ExecuteAsync(async token => { var project = await Required(id, token); Check(project.Version, expectedVersion); if (await linkedTasks.IsInUseAsync(new PlanningLink(id, null, null), token)) throw new LinkedTaskConflictException(); await repository.DeleteProjectAsync(id, token); }, ct);
 

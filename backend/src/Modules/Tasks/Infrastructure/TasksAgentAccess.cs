@@ -46,6 +46,9 @@ public sealed class TasksAgentAccess(TasksService service) : ITasksAgentAccess
                 var item = mutation.Operation switch
                 {
                     TaskMutationKind.Create or TaskMutationKind.Update => await ApplyCompatibleStateAsync(mutation, ct),
+                    TaskMutationKind.Replace => await service.ReplaceAsync(mutation.Id, Version(mutation), mutation.Title ?? "", mutation.Description,
+                        mutation.Planning, Parse<TaskLocation>(mutation.Placement), Parse<TaskWorkStatus>(mutation.WorkStatus), mutation.SectionId,
+                        mutation.Position, mutation.ArchivedSectionName, ct),
                     TaskMutationKind.Move => await Move(mutation, ct),
                     TaskMutationKind.SetWorkStatus => await service.SetStatusAsync(mutation.Id, Version(mutation), Parse<TaskWorkStatus>(mutation.WorkStatus), ct),
                     TaskMutationKind.Archive => await service.ArchiveAsync(mutation.Id, Version(mutation), ct),

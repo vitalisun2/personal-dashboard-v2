@@ -10,6 +10,7 @@ let storePromise: Promise<IndexedDbOfflineStore> | undefined
 let running: Promise<void> | undefined
 let rerun = false
 let started = false
+let resolving = false
 let status: SyncStatus = 'syncing'
 const listeners = new Set<(next: SyncStatus) => void>()
 
@@ -37,6 +38,7 @@ export async function saveOfflineMutation(entity: OfflineEntity, operation: Sync
 }
 
 export function requestSync(): void {
+  if (resolving) { rerun = true; return }
   if (running) {
     rerun = true
     return
@@ -49,6 +51,19 @@ export function requestSync(): void {
       requestSync()
     }
   })
+}
+
+/** Conflict decisions must not race an in-flight push of the discarded operations. */
+export async function withSyncPaused<T>(action: () => Promise<T>): Promise<T> {
+  if (resolving) throw new Error('Дождитесь сохранения предыдущего решения.')
+  resolving = true
+  try {
+    await running
+    return await action()
+  } finally {
+    resolving = false
+    requestSync()
+  }
 }
 
 async function runSync(): Promise<void> {

@@ -119,7 +119,7 @@ test('an in-flight push does not replace a newer local edit of the same entity',
   assert.deepEqual(pending.map(operation => operation.operationId), ['second']);
 });
 
-test('a delete version conflict retries once with current server version and a new operation id', async () => {
+test('a delete version conflict requires an explicit choice and preserves the server edit', async () => {
   const pending = [{ operationId: 'delete-1', type: 'knowledge.node', id: 'doc-a', kind: 'delete', expectedVersion: 2, createdAt: '2026-09-25T10:00:00Z' }];
   let local = { type: 'knowledge.node', id: 'doc-a', version: 3, payload: null, deleted: true };
   const conflicts = [];
@@ -158,13 +158,11 @@ test('a delete version conflict retries once with current server version and a n
 
   const summary = await syncPendingOperations(store, transport, () => new Date('2026-09-25T10:05:00Z'));
 
-  assert.deepEqual(summary, { applied: 1, conflicts: 0, pulled: 0 });
-  assert.equal(sent.length, 2);
-  assert.equal(sent[1][0].expectedVersion, 4);
-  assert.notEqual(sent[1][0].operationId, 'delete-1');
-  assert.equal(pending.length, 0);
+  assert.deepEqual(summary, { applied: 0, conflicts: 1, pulled: 0 });
+  assert.equal(sent.length, 1);
+  assert.equal(pending.length, 1);
   assert.equal(local.deleted, true);
-  assert.deepEqual(conflicts, []);
+  assert.equal(conflicts[0].serverPayload.title, 'Server');
 });
 
 test('a new server epoch preserves pending local work and stops syncing', async () => {

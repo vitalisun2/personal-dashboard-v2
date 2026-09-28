@@ -64,6 +64,16 @@ public sealed class PlanningAgentAccess(PlanningService planning) : IPlanningAge
                 case PlanningMutationKind.SetFeatureStatus:
                     if (mutation.Kind != PlanningEntityKind.Feature || mutation.ProjectId is not { } featureProject || mutation.MilestoneId is not { } featureMilestone || !Enum.TryParse<FeatureStatus>(mutation.FeatureStatus, true, out var status)) throw new ArgumentException("SetFeatureStatus requires a feature and a valid status.");
                     await planning.SetFeatureStatusAsync(featureProject, featureMilestone, mutation.Id, RequiredVersion(mutation), status, ct); break;
+                case PlanningMutationKind.Replace:
+                    if (mutation.Kind == PlanningEntityKind.Project && mutation.IsArchived is { } archived)
+                        await planning.ReplaceProjectAsync(mutation.Id, RequiredVersion(mutation), mutation.Title ?? "", mutation.Description, archived, ct);
+                    else if (mutation.Kind == PlanningEntityKind.Milestone && mutation.ProjectId is { } replaceProject)
+                        await planning.EditMilestoneAsync(replaceProject, mutation.Id, RequiredVersion(mutation), mutation.Title ?? "", mutation.Description, ct);
+                    else if (mutation.Kind == PlanningEntityKind.Feature && mutation.ProjectId is { } fp && mutation.MilestoneId is { } fm
+                        && Enum.TryParse<FeatureStatus>(mutation.FeatureStatus, true, out var replacementStatus) && Enum.IsDefined(replacementStatus))
+                        await planning.ReplaceFeatureAsync(fp, fm, mutation.Id, RequiredVersion(mutation), mutation.Title ?? "", mutation.Description, replacementStatus, ct);
+                    else throw new ArgumentException("Replace requires entity parents, project isArchived, and feature status as appropriate.");
+                    break;
                 case PlanningMutationKind.Archive:
                 case PlanningMutationKind.Restore:
                     if (mutation.Kind != PlanningEntityKind.Project) throw new ArgumentException("Only projects can be archived.");

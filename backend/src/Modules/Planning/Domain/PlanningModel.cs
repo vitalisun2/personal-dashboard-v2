@@ -21,6 +21,7 @@ public sealed class Project
     public void Rename(string title, string? description) { Title = Required(title); Description = description?.Trim() ?? ""; Touch(); MarkChildrenUpdated(); }
     public void Archive() { IsArchived = true; Touch(); MarkChildrenUpdated(); }
     public void Restore() { IsArchived = false; Touch(); MarkChildrenUpdated(); }
+    public void Replace(string title, string? description, bool archived) { var normalized = Required(title); Title = normalized; Description = description?.Trim() ?? ""; IsArchived = archived; Touch(); MarkChildrenUpdated(); }
     public void SetPosition(int position) { if (Position == position) return; Position = position; Touch(); }
     public void RemoveMilestone(Guid id) { _milestones.Remove(_milestones.Single(x => x.Id == id)); Reindex(_milestones); Touch(); }
     internal static string Required(string value) => string.IsNullOrWhiteSpace(value) ? throw new ArgumentException("Title is required.") : value.Trim();
@@ -71,4 +72,10 @@ public sealed class Feature : OrderedEntity
     internal Feature(string title, string? description, int position, Guid? id = null) : base(title, description, position, id) { }
     public FeatureStatus Status { get; private set; } = FeatureStatus.Planned;
     public void SetStatus(FeatureStatus status) { Status = status; Touch(); }
+    public void Replace(string title, string? description, FeatureStatus status)
+    {
+        var normalized = Project.Required(title);
+        if (!Enum.IsDefined(status)) throw new ArgumentException("Invalid feature status.");
+        Title = normalized; Description = description?.Trim() ?? ""; Status = status; Touch();
+    }
 }

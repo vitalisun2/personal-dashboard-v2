@@ -56,6 +56,24 @@ public sealed class TaskItem
     public void SetWorkStatus(TaskWorkStatus status) { if (Location != TaskLocation.Today) throw new InvalidOperationException("Work status applies only to Today tasks."); WorkStatus = status; Touch(); }
     public void Archive(string? sectionName = null) { Location = TaskLocation.Archived; ArchivedSectionName = sectionName ?? ArchivedSectionName; SectionId = null; Touch(); }
     public void Restore(Guid? sectionId) { if (Location != TaskLocation.Archived) throw new InvalidOperationException("Only archived tasks can be restored."); Location = TaskLocation.Backlog; SectionId = ProjectId is null ? sectionId : null; WorkStatus = TaskWorkStatus.New; Touch(); }
+    // Conflict resolution replaces one entity after validating its entire final state.
+    public void Replace(string title, string? description, Guid? projectId, Guid? milestoneId, Guid? featureId,
+        TaskLocation location, TaskWorkStatus status, Guid? sectionId, int position, string? archivedSectionName)
+    {
+        var normalizedTitle = Required(title);
+        if (!Enum.IsDefined(location) || !Enum.IsDefined(status)) throw new ArgumentException("Invalid task placement or work status.");
+        if ((projectId is null) != (milestoneId is null) || (milestoneId is null) != (featureId is null)) throw new ArgumentException("A planning link requires project, milestone and feature ids together.");
+        if (location == TaskLocation.Planned && featureId is null) throw new ArgumentException("Planned placement requires a linked feature.");
+        if ((projectId is not null || location is TaskLocation.Planned or TaskLocation.Archived) && sectionId is not null) throw new ArgumentException("Linked, planned and archived tasks cannot belong to a task section.");
+        if (projectId is null && (location is TaskLocation.Backlog or TaskLocation.Today) && sectionId is null) throw new ArgumentException("Standalone active tasks require a section.");
+        if ((location is TaskLocation.Backlog or TaskLocation.Planned) && status != TaskWorkStatus.New) throw new ArgumentException("Backlog and planned tasks must have New work status.");
+        if (position < 0) throw new ArgumentException("Task position cannot be negative.");
+        Title = normalizedTitle; Description = description?.Trim() ?? "";
+        ProjectId = projectId; MilestoneId = milestoneId; FeatureId = featureId;
+        Location = location; WorkStatus = status; SectionId = sectionId; Position = position;
+        ArchivedSectionName = archivedSectionName;
+        Touch();
+    }
     internal static string Required(string value) => string.IsNullOrWhiteSpace(value) ? throw new ArgumentException("Value is required.") : value.Trim();
     public void SetPosition(int position) { Position = position; Touch(); }
     public void RefreshPlanningProjection() => Touch();

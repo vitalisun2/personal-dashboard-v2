@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { RouterLink, RouterView, useRoute } from 'vue-router'
 import { subscribeSyncStatus, type SyncStatus } from '../offline/runtime'
 import AppearanceSettings from './AppearanceSettings.vue'
+import ConflictResolver from '../offline/ConflictResolver.vue'
 
 const route = useRoute()
 const navigation = [
@@ -114,6 +115,7 @@ onUnmounted(() => {
           <AppearanceSettings />
         </header>
         <span class="sync-status" :data-status="syncStatus" aria-live="polite">{{ syncLabels[syncStatus] }}</span>
+        <ConflictResolver />
         <div class="page-content"><RouterView /></div>
       </div>
       <nav v-if="!hideBottomNav" class="bottom-window" aria-label="Навигация">

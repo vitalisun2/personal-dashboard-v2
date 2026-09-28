@@ -45,7 +45,7 @@ public interface IKnowledgeAgentAccess
 }
 
 public enum PlanningEntityKind { Project, Milestone, Feature }
-public enum PlanningMutationKind { Create, Update, Archive, Restore, Delete, SetFeatureStatus, Reorder }
+public enum PlanningMutationKind { Create, Update, Archive, Restore, Delete, SetFeatureStatus, Reorder, Replace }
 
 public sealed record PlanningEntityState(
     PlanningEntityKind Kind,
@@ -70,7 +70,8 @@ public sealed record PlanningMutation(
     string? Description = null,
     string? FeatureStatus = null,
     IReadOnlyList<VersionedEntityId>? Order = null,
-    long? ExpectedParentVersion = null);
+    long? ExpectedParentVersion = null,
+    bool? IsArchived = null);
 
 public sealed record PlanningMutationResult(bool Applied, PlanningEntityState? Current, string? ConflictReason);
 
@@ -94,7 +95,7 @@ public sealed record TaskFeatureTarget(
     string Path);
 
 public enum TaskEntityKind { Task, Section }
-public enum TaskMutationKind { Create, Update, Move, SetWorkStatus, Archive, Restore, Delete, Reorder }
+public enum TaskMutationKind { Create, Update, Move, SetWorkStatus, Archive, Restore, Delete, Reorder, Replace }
 
 public sealed record TaskEntityState(
     TaskEntityKind Kind,
@@ -122,7 +123,9 @@ public sealed record TaskMutation(
     string? WorkStatus = null,
     Guid? SectionId = null,
     string? Bucket = null,
-    IReadOnlyList<VersionedEntityId>? Order = null);
+    IReadOnlyList<VersionedEntityId>? Order = null,
+    int? Position = null,
+    string? ArchivedSectionName = null);
 
 public sealed record TaskMutationResult(bool Applied, TaskEntityState? Current, string? ConflictReason);
 

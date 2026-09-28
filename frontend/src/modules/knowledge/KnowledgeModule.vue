@@ -6,12 +6,11 @@ import SearchHighlight from '../../shared/SearchHighlight.vue'
 import TextRangeHighlight from '../../shared/TextRangeHighlight.vue'
 import { search as searchIndexed, type SearchHit } from '../search/searchApi'
 import {
-  cacheServerKnowledge, getCachedKnowledge, getKnowledgeConflicts, getLocallyDeletedKnowledgeIds,
-  keepKnowledgeServerVersion, loadKnowledgeTree, pendingKnowledgeCount, queueKnowledgeDelete,
-  queueKnowledgeUpsert, retryKnowledgeDeleteConflict, searchKnowledge,
+  cacheServerKnowledge, getCachedKnowledge, getLocallyDeletedKnowledgeIds,
+  loadKnowledgeTree, pendingKnowledgeCount, queueKnowledgeDelete,
+  queueKnowledgeUpsert, searchKnowledge,
   type KnowledgeNode, type KnowledgeSearchResult,
 } from './knowledgeApi'
-import type { SyncConflict } from '../../offline/types'
 import './knowledge.css'
 
 const route = useRoute()
@@ -32,7 +31,6 @@ const error = ref('')
 const pendingCount = ref(0)
 const isOnline = ref(typeof navigator === 'undefined' || navigator.onLine)
 const syncStatus = ref<SyncStatus>('ready')
-const conflictItems = ref<Awaited<ReturnType<typeof getKnowledgeConflicts>>>([])
 const menuId = ref('')
 const renameId = ref('')
 const createOpen = ref(false)
@@ -79,11 +77,9 @@ const similarResults = computed(() => {
 })
 const searchLoading = computed(() => exactSearchLoading.value || semanticSearchLoading.value)
 const hasSearchResults = computed(() => results.value.length > 0 || similarResults.value.length > 0)
-const deleteConflicts = computed(() => conflictItems.value.filter(conflict => conflict.localDeleted))
 const syncMessage = computed(() => {
   if ((!isOnline.value || syncStatus.value === 'offline') && pendingCount.value > 0)
     return `Нет сети · ${pendingLabel(pendingCount.value)}`
-  if (deleteConflicts.value.length > 0) return `${deleteConflicts.value.length} ${conflictWord(deleteConflicts.value.length)} удаления`
   if (syncStatus.value === 'error' && pendingCount.value > 0)
     return pendingLabel(pendingCount.value)
   return ''
@@ -108,7 +104,6 @@ const createWhereLabel = computed(() => {
 function childNodes(parentId: string | null): KnowledgeNode[] { return nodes.value.filter(node => node.parentId === parentId).sort((a, b) => a.position - b.position) }
 function changeWord(count: number) { return count === 1 ? 'изменение' : count < 5 ? 'изменения' : 'изменений' }
 function pendingLabel(count: number) { return `${count} ${changeWord(count)} ${count === 1 ? 'ожидает' : 'ожидают'} синхронизации` }
-function conflictWord(count: number) { return count === 1 ? 'конфликт' : count < 5 ? 'конфликта' : 'конфликтов' }
 function semanticProximity(hit: SearchHit) {
   return Math.max(0, Math.min(1, hit.semanticSimilarity ?? 0)).toFixed(2).replace('.', ',')
 }
@@ -148,9 +143,7 @@ async function load() {
 }
 async function refreshSyncState() {
   try {
-    const [pending, list] = await Promise.all([pendingKnowledgeCount(), getKnowledgeConflicts()])
-    pendingCount.value = pending
-    conflictItems.value = list
+    pendingCount.value = await pendingKnowledgeCount()
   } catch (err) { setError(err) }
 }
 async function retrySync() {
@@ -217,6 +210,7 @@ let unsubscribeSync: () => void = () => undefined
 let deleteNoticeTimer: ReturnType<typeof setTimeout> | undefined
 const onOnline = () => { isOnline.value = true }
 const onOffline = () => { isOnline.value = false }
+const onOfflineDataUpdated = () => { void getCachedKnowledge().then(cached => { nodes.value = cached; return refreshSyncState() }).catch(setError) }
 onMounted(() => {
   void load()
   if (isSearching.value) scheduleSearch()
@@ -224,6 +218,7 @@ onMounted(() => {
   void refreshSyncState()
   window.addEventListener('online', onOnline)
   window.addEventListener('offline', onOffline)
+  window.addEventListener('offline-data-updated', onOfflineDataUpdated)
 })
 onUnmounted(() => {
   if (searchTimer) clearTimeout(searchTimer)
@@ -232,6 +227,7 @@ onUnmounted(() => {
   unsubscribeSync()
   window.removeEventListener('online', onOnline)
   window.removeEventListener('offline', onOffline)
+  window.removeEventListener('offline-data-updated', onOfflineDataUpdated)
 })
 
 function toggle(id: string) {
@@ -330,22 +326,6 @@ async function confirmDelete() {
   } catch (err) { setError(err) } finally { busy.value = false }
 }
 
-async function retryDeleteConflict(conflict: SyncConflict<KnowledgeNode>) {
-  try {
-    error.value = ''
-    const queued = await retryKnowledgeDeleteConflict(conflict)
-    await refreshSyncState()
-    if (queued) requestSync()
-  } catch (err) { setError(err) }
-}
-
-async function keepServerDocument(conflict: SyncConflict<KnowledgeNode>) {
-  try {
-    await keepKnowledgeServerVersion(conflict)
-    nodes.value = await getCachedKnowledge()
-    await refreshSyncState()
-  } catch (err) { setError(err) }
-}
 function isDescendant(id: string, possibleAncestorId: string): boolean {
   let parentId = nodes.value.find(item => item.id === id)?.parentId
   while (parentId) {
@@ -397,13 +377,6 @@ function clearSearch() {
       <div v-if="syncMessage" class="knowledge-sync" role="status">
         <span>{{ syncMessage }}</span>
         <button v-if="isOnline && (syncStatus === 'error' || pendingCount > 0)" type="button" @click="retrySync">Повторить</button>
-      </div>
-      <div v-for="conflict in deleteConflicts" :key="conflict.operationId" class="knowledge-conflict">
-        <p>Документ «{{ conflict.serverPayload?.title || 'Без названия' }}» изменился на другом устройстве. Удалить актуальную версию?</p>
-        <div class="knowledge-conflict-actions">
-          <button type="button" @click="keepServerDocument(conflict)">Оставить</button>
-          <button type="button" class="danger" @click="retryDeleteConflict(conflict)">Удалить</button>
-        </div>
       </div>
       <p v-if="deleteNotice" class="knowledge-toast" role="status">{{ deleteNotice }}</p>
 
