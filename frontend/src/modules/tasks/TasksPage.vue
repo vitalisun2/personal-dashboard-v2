@@ -17,7 +17,6 @@ type GroupView = { kind: 'plain'; key: string; title: string; section: Section; 
 type SwipeState = { key: string; pointerId: number; startX: number; startY: number; moved: boolean; long: boolean; timer: number }
 type DragState = { kind: 'task' | 'section'; id: string; pointerId: number; row: HTMLElement; target: HTMLElement | null; place: 'before' | 'after' | 'inside' | ''; started: boolean; lifecycle: ReturnType<typeof startReorderDrag> }
 
-const api = '/api/v2/tasks'
 const route = useRoute(), router = useRouter()
 const state = reactive({
   bucket: 'Backlog' as 'Backlog' | 'Сегодня', filter: 'all', archive: false, orderMode: false,
@@ -46,6 +45,8 @@ const groups = computed<GroupView[]>(() => {
     if (state.filter !== 'all' && !tasks.length) continue
     result.push({ kind: 'plain', key: `section:${section.id}`, title: section.name, section, tasks })
   }
+  const ungrouped = filtered.value.filter(task => !task.projectId && !state.sections.some(section => section.id === task.sectionId))
+  if (ungrouped.length) result.push({ kind: 'plain', key: 'section:local', title: 'Личное', section: { id: '', name: 'Личное', location: location.value, position: -1, version: 0 }, tasks: ungrouped.sort((a, b) => a.position - b.position) })
   for (const group of linkedGroups.value) {
     if (!group.tasks.length) continue
     result.push({ kind: 'project', key: `project:${group.projectId}`, title: group.title, projectId: group.projectId, tasks: group.tasks })
@@ -128,12 +129,12 @@ async function savePlanningLink(moveToPlanning: boolean) {
     state.detail = updated; state.tasks = state.tasks.map(x => x.id === updated.id ? updated : x); state.linkSheetOpen = false; await refresh(); flash(moveToPlanning ? 'Перенесено в планирование' : 'Фича назначена')
     if (moveToPlanning) await router.push(`/planning/projects/${ids.projectId}/milestones/${ids.milestoneId}/features/${ids.featureId}`)
   } catch (error) {
-    if (!(error instanceof TypeError)) { state.error = (error as Error).message; return }
+    if (!(error instanceof LocalMutation)) { state.error = (error as Error).message; return }
     const local: Task = { ...task, ...ids, sectionId: undefined, ...(moveToPlanning ? { location: 'planned', workStatus: 'new' } : {}), version: task.version + 1 }
     const payload = { operation: 'update', kind: 'task', id: task.id, expectedVersion: task.version, ...(moveToPlanning ? { placement: 'planned' } : {}), workStatus: statusName(task.workStatus) === 'InProgress' ? 'inProgress' : statusName(task.workStatus).toLowerCase(), sectionId: null, planning: ids }
     await queueTask('tasks.task', task.id, task.version, payload, false, local)
     state.detail = local; state.tasks = state.tasks.map(x => x.id === local.id ? local : x); state.linkSheetOpen = false
-    state.error = 'Нет сети. Изменение сохранено и будет синхронизировано позже.'
+    state.error = 'Изменение сохранено на устройстве; синхронизация выполняется автоматически.'
     if (moveToPlanning) { state.detail = null; await router.push(`/planning/projects/${ids.projectId}/milestones/${ids.milestoneId}/features/${ids.featureId}`) }
     else await refresh()
   }
@@ -343,13 +344,13 @@ async function commitRename(save: boolean) {
 async function renameTask(task: Task, title: string) {
   try { await request(`/${task.id}`, { method: 'PUT', body: JSON.stringify({ expectedVersion: task.version, title, description: task.description }) }); await refresh() }
   catch (error) {
-    if (error instanceof TypeError) {
+    if (error instanceof LocalMutation) {
       const local = { ...task, title, version: task.version + 1 }
       await queueTask('tasks.task', task.id, task.version, { operation: 'update', kind: 'task', id: task.id, expectedVersion: task.version, title, description: task.description }, false, local)
       state.tasks = state.tasks.map(x => x.id === task.id ? local : x)
       if (state.detail?.id === task.id) state.detail = local
       await cacheRows('tasks.task', state.tasks, true)
-      state.error = 'Нет сети. Изменение сохранено и будет синхронизировано позже.'; return
+      state.error = 'Изменение сохранено на устройстве; синхронизация выполняется автоматически.'; return
     }
     state.error = (error as Error).message
   }
@@ -358,10 +359,10 @@ async function renameSection(section: Section, name: string) {
   if (!name || name === section.name) return
   try { await request(`/sections/${section.id}`, { method: 'PUT', body: JSON.stringify({ expectedVersion: section.version, name }) }); await refresh() }
   catch (error) {
-    if (error instanceof TypeError) {
+    if (error instanceof LocalMutation) {
       const local = { ...section, name, version: section.version + 1 }
       await queueTask('tasks.section', section.id, section.version, { operation: 'update', kind: 'section', id: section.id, expectedVersion: section.version, title: name, bucket: section.location }, false, local)
-      state.sections = state.sections.map(x => x.id === section.id ? local : x); state.error = 'Нет сети. Изменение сохранено и будет синхронизировано позже.'; return
+      state.sections = state.sections.map(x => x.id === section.id ? local : x); state.error = 'Изменение сохранено на устройстве; синхронизация выполняется автоматически.'; return
     }
     state.error = (error as Error).message
   }
@@ -369,9 +370,9 @@ async function renameSection(section: Section, name: string) {
 async function deleteSection(section: Section) {
   try { await request(`/sections/${section.id}`, { method: 'DELETE', body: JSON.stringify({ expectedVersion: section.version }) }); await refresh() }
   catch (error) {
-    if (error instanceof TypeError) {
+    if (error instanceof LocalMutation) {
       await queueTask('tasks.section', section.id, section.version, { operation: 'delete', kind: 'section', id: section.id, bucket: section.location }, true)
-      state.sections = state.sections.filter(x => x.id !== section.id); await cacheRows('tasks.section', state.sections, true); state.error = 'Нет сети. Удаление сохранено и будет синхронизировано позже.'; return
+      state.sections = state.sections.filter(x => x.id !== section.id); await cacheRows('tasks.section', state.sections, true); state.error = 'Удаление сохранено на устройстве; синхронизация выполняется автоматически.'; return
     }
     state.error = (error as Error).message
   }
@@ -403,14 +404,14 @@ async function createTask(): Promise<Task | null> {
   let created: Task, queuedOffline = false, moveError = ''
   try { created = await request<Task>('', { method: 'POST', body: JSON.stringify({ title: state.title, description: state.description, projectId: null, milestoneId: null, featureId: null, sectionId: state.bucket === 'Backlog' ? (state.sectionId || null) : null }) }) }
   catch (error) {
-    if (!(error instanceof TypeError)) throw error
+    if (!(error instanceof LocalMutation)) throw error
     const id = newId(), sectionId = state.bucket === 'Backlog' ? state.sectionId || state.sections[0]?.id || null : null
     const payload = { operation: 'create', kind: 'task', id, title: state.title.trim(), description: state.description, placement: 'backlog', workStatus: 'new', sectionId }
     const local: Task = { id, title: state.title.trim(), description: state.description, location: 'backlog', workStatus: 'new', sectionId: sectionId || undefined, position: state.tasks.length, version: 1 }
     await queueTask('tasks.task', id, null, payload, false, local)
     created = { id, title: state.title.trim(), description: state.description, location: 'backlog', workStatus: 'new', sectionId: sectionId || undefined, position: state.tasks.length, version: 1 }
     queuedOffline = true
-    state.tasks.push(created); await cacheRows('tasks.task', state.tasks, true); state.error = 'Нет сети. Задача сохранена и будет синхронизирована позже.'
+    state.tasks.push(created); await cacheRows('tasks.task', state.tasks, true); state.error = 'Задача сохранена на устройстве; синхронизация выполняется автоматически.'
   }
   if (state.bucket === 'Сегодня') {
     if (queuedOffline) {
@@ -422,16 +423,16 @@ async function createTask(): Promise<Task | null> {
     } else {
       try { await request(`/${created.id}/today`, { method: 'POST', body: JSON.stringify({ expectedVersion: created.version }) }) }
       catch (error) {
-        if (error instanceof TypeError) {
+        if (error instanceof LocalMutation) {
           const todayTask = { ...created, location: 'today', version: created.version + 1 }
           await queueTask('tasks.task', created.id, created.version, { operation: 'move', kind: 'task', id: created.id, expectedVersion: created.version, placement: 'today', workStatus: 'new', sectionId: null }, false, todayTask)
-          state.tasks = state.tasks.map(x => x.id === created.id ? todayTask : x); state.error = 'Нет сети. Создание сохранено, перенос на Сегодня будет синхронизирован позже.'
+          state.tasks = state.tasks.map(x => x.id === created.id ? todayTask : x); state.error = 'Создание сохранено, перенос на Сегодня будет синхронизирован позже.'
         } else moveError = (error as Error).message
       }
     }
   }
   state.title = ''; state.description = ''; state.creating = false
-  if (state.bucket === 'Backlog' && created.sectionId) state.expanded[state.bucket].add(created.sectionId)
+  if (state.bucket === 'Backlog' && created.sectionId) state.expanded[state.bucket].add(`section:${created.sectionId}`)
   if (moveError) { state.bucket = 'Backlog'; await refresh(); state.error = `Задача создана в Backlog, но не перенесена на Сегодня: ${moveError}` }
   else if (!queuedOffline) await refresh()
   return created
@@ -441,16 +442,16 @@ async function createSection(): Promise<Section | null> {
   let created: Section, queuedOffline = false
   try { created = await request<Section>('/sections', { method: 'POST', body: JSON.stringify({ name: state.title, location: state.bucket === 'Сегодня' ? 'today' : 'backlog' }) }) }
   catch (error) {
-    if (!(error instanceof TypeError)) { state.error = (error as Error).message; return null }
+    if (!(error instanceof LocalMutation)) { state.error = (error as Error).message; return null }
     const id = newId(), bucket = state.bucket === 'Сегодня' ? 'today' : 'backlog'
     const payload = { operation: 'create', kind: 'section', id, title: state.title.trim(), bucket, position: state.sections.length }
     const local: Section = { id, name: state.title.trim(), location: bucket, position: state.sections.length, version: 1 }
     await queueTask('tasks.section', id, null, payload, false, local)
     created = { id, name: state.title.trim(), location: bucket, position: state.sections.length, version: 1 }
-    queuedOffline = true; state.sections.push(created); await cacheRows('tasks.section', state.sections, true); state.error = 'Нет сети. Раздел сохранён и будет синхронизирован позже.'
+    queuedOffline = true; state.sections.push(created); await cacheRows('tasks.section', state.sections, true); state.error = 'Раздел сохранён на устройстве; синхронизация выполняется автоматически.'
   }
   state.title = ''; state.creating = false; if (!queuedOffline) await refresh(); state.sectionId = created.id
-  state.expanded[state.bucket].add(created.id)
+  state.expanded[state.bucket].add(`section:${created.id}`)
   return created
 }
 
@@ -497,10 +498,10 @@ async function removeArchivedTask(task: Task) {
     await request(`/${task.id}`, { method: 'DELETE', body: JSON.stringify({ expectedVersion: task.version }) })
     await (await getOfflineStore()).putEntity({ type: 'tasks.task.view', id: task.id, version: task.version + 1, payload: null, deleted: true, updatedAt: new Date().toISOString() })
   } catch (error) {
-    if (!(error instanceof TypeError)) { state.error = (error as Error).message; return }
+    if (!(error instanceof LocalMutation)) { state.error = (error as Error).message; return }
     try {
       await queueTask('tasks.task', task.id, task.version, { operation: 'delete', kind: 'task', id: task.id }, true)
-      state.error = 'Нет сети. Удаление сохранено и будет синхронизировано позже.'
+      state.error = 'Удаление сохранено на устройстве; синхронизация выполняется автоматически.'
     } catch (saveError) { state.error = (saveError as Error).message; return }
   }
   state.tasks = state.tasks.filter(item => item.id !== task.id)
@@ -622,17 +623,18 @@ function onGroupsPointerCancel(event: PointerEvent) {
 function clearGhost() { if (drag?.row) drag.row.classList.remove('task-drag-source'); drag?.lifecycle.cleanup() }
 function clearDragMarks() { groupsEl.value?.querySelectorAll('.task-drop-inside,.task-drop-before,.task-drop-after').forEach(el => el.classList.remove('task-drop-inside', 'task-drop-before', 'task-drop-after')) }
 
-// ---------- API / offline (unchanged semantics) ----------
+// ---------- Durable local mutations ----------
+// Mutations always enter the durable local queue; the runtime owns network sync.
+class LocalMutation extends TypeError {}
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${api}${path}`, { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers } })
-  if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || `Запрос не выполнен (${response.status})`) }
-  return response.status === 204 ? undefined as T : response.json()
+  void path; void init
+  throw new LocalMutation('Save locally before synchronizing')
 }
 function newId() { return crypto.randomUUID() }
 async function queueTask(type: 'tasks.task' | 'tasks.section', id: string, version: number | null, payload: object, deleted = false, viewPayload?: object) {
   const store = await getOfflineStore(), pending = (await store.listPendingOperations()).filter(x => x.type === type && x.id === id)
   const tail = pending[pending.length - 1]
-  const expectedVersion = tail ? (tail.expectedVersion === null ? 1 : tail.expectedVersion + 1) : version
+  const expectedVersion = tail ? Math.max(version ?? 0, tail.expectedVersion === null ? 1 : tail.expectedVersion + 1) : version
   const payloadWithVersion = { ...payload, ...(expectedVersion === null ? {} : { expectedVersion }) }
   const operationId = newId(), now = new Date().toISOString()
   const entity: OfflineEntity = { type, id, version: expectedVersion === null ? 1 : expectedVersion + 1, payload: viewPayload ?? payloadWithVersion, deleted, updatedAt: now }
@@ -654,61 +656,32 @@ async function cacheRows(type: 'tasks.task' | 'tasks.section' | 'planning.projec
   const viewType = type === 'planning.project' ? 'planning.project.view' : `${type}.view`
   await Promise.all(rows.filter(row => force || !pending.has(row.id)).map(row => store.putEntity({ type: viewType, id: row.id, version: row.version, payload: JSON.parse(JSON.stringify(row)), deleted: false, updatedAt: now })))
 }
-async function cacheBucket(type: 'tasks.task' | 'tasks.section', bucket: string, rows: Array<Task | Section>) {
-  const store = await getOfflineStore(), viewType = `${type}.view`, previous = await store.listEntities(viewType), ids = new Set(rows.map(row => row.id)), pending = await queuedIds(type), now = new Date().toISOString()
-  for (const entry of previous) {
-    const row = entry.payload as Task | Section | null
-    if (!row || String(row.location).toLowerCase() !== bucket.toLowerCase() || ids.has(entry.id) || pending.has(entry.id)) continue
-    await store.putEntity({ ...entry, deleted: true, updatedAt: now })
-  }
-  await cacheRows(type, rows)
-}
+let refreshGeneration = 0
 async function refresh() {
-  state.busy = true; state.error = ''
+  const generation = ++refreshGeneration, requestedId = String(route.params.taskId || ''), bucket = location.value
+  state.busy = true
   try {
-    const requestedId = String(route.params.taskId || '')
-    let tasks: Task[], sections: Section[], detail: Task | null, groupOrder: GroupOrderView
-    try {
-      [tasks, sections, detail, groupOrder] = await Promise.all([request<Task[]>(`?location=${location.value}`), state.archive ? Promise.resolve([] as Section[]) : request<Section[]>(`/sections?location=${location.value}`), requestedId ? request<Task>(`/${requestedId}`).catch(() => null) : Promise.resolve(null), state.archive ? Promise.resolve({ version: 0, keys: [] }) : request<GroupOrderView>(`/groups/order?location=${location.value}`)])
-      if (!state.archive) groupOrder = await readGroupOrder(location.value, groupOrder) || groupOrder
-      if (!state.archive) localStorage.setItem(`tasks.groupOrder.${location.value}`, JSON.stringify(groupOrder))
-      await cacheBucket('tasks.task', location.value, tasks); if (detail) await cacheRows('tasks.task', [detail]); if (!state.archive) await cacheBucket('tasks.section', location.value, sections)
-    } catch {
-      const allTasks = await cached<Task>('tasks.task'), allSections = await cached<Section>('tasks.section')
-      tasks = allTasks.filter(x => String(x.location).toLowerCase() === location.value.toLowerCase())
-      sections = state.archive ? [] : allSections.filter(x => String(x.location).toLowerCase() === location.value.toLowerCase())
-      groupOrder = state.archive ? { version: 0, keys: [] } : (await readGroupOrder(location.value)) || JSON.parse(localStorage.getItem(`tasks.groupOrder.${location.value}`) || '{"version":0,"keys":[]}') as GroupOrderView
-      detail = requestedId ? allTasks.find(x => x.id === requestedId) || null : null
-      if (!tasks.length && !sections.length && !detail) throw new Error('Нет сети и сохранённых данных для этого списка.')
-      state.error = 'Нет сети. Показаны сохранённые данные.'
-    }
-    const store = await getOfflineStore(), pending = await store.listPendingOperations(), cachedTasks = await cached<Task>('tasks.task'), cachedSections = await cached<Section>('tasks.section')
-    const changedTasks = new Set<string>(), changedSections = new Set<string>(), archivedSections = new Set<string>()
-    for (const op of pending) {
-      const order = (op.payload as { order?: Array<{ id: string }> } | undefined)?.order || []
-      if (op.type === 'tasks.task') { changedTasks.add(op.id); for (const item of order) changedTasks.add(item.id) }
-      if (op.type === 'tasks.section') { changedSections.add(op.id); for (const item of order) changedSections.add(item.id) }
-      const payload = op.payload as { operation?: string; sectionId?: string } | undefined
-      if (op.type === 'tasks.task' && payload?.operation === 'archive' && payload.sectionId) archivedSections.add(payload.sectionId)
-    }
-    tasks = tasks.filter(task => !changedTasks.has(task.id)).concat(cachedTasks.filter(task => changedTasks.has(task.id) && String(task.location).toLowerCase() === location.value.toLowerCase()))
-    sections = sections.filter(section => !changedSections.has(section.id)).concat(cachedSections.filter(section => changedSections.has(section.id) && String(section.location).toLowerCase() === location.value.toLowerCase()))
-    sections = sections.filter(section => !archivedSections.has(section.id) || tasks.some(task => task.sectionId === section.id))
-    state.tasks = tasks; state.sections = sections; state.groupOrder = groupOrder
-    try { state.projects = await fetch('/api/v2/planning/projects?includeArchived=true').then(response => response.ok ? response.json() as Promise<ProjectLabel[]> : []); await cacheRows('planning.project', state.projects.map(x => ({ ...x, version: 0 }))) }
-    catch { const rows = await (await getOfflineStore()).listEntities('planning.project.view'); state.projects = rows.filter(x => !x.deleted).map(x => x.payload as ProjectLabel) }
-    state.detail = detail
-    if (state.detail) {
-      state.bucket = state.detail.location === 'today' || state.detail.location === 'Today' ? 'Сегодня' : 'Backlog'
-      if (!state.detailEditing) { state.title = state.detail.title; state.description = state.detail.description }
-    }
-    if (sections.length && !sections.some(x => x.id === state.sectionId)) state.sectionId = sections[0].id
+    const [allTasks, allSections, projectRows, groupOrder] = await Promise.all([
+      cached<Task>('tasks.task'), cached<Section>('tasks.section'),
+      getOfflineStore().then(store => store.listEntities('planning.project.view')),
+      state.archive ? Promise.resolve({ version: 0, keys: [] }) : readGroupOrder(bucket),
+    ])
+    if (generation !== refreshGeneration) return
+    state.tasks = allTasks.filter(x => String(x.location).toLowerCase() === bucket.toLowerCase()).sort((a, b) => a.position - b.position)
+    state.sections = state.archive ? [] : allSections.filter(x => String(x.location).toLowerCase() === bucket.toLowerCase()).sort((a, b) => a.position - b.position)
+    state.groupOrder = groupOrder || { version: 0, keys: [] }
+    state.projects = projectRows.filter(x => !x.deleted).map(x => x.payload as ProjectLabel)
+    state.detail = requestedId ? allTasks.find(x => x.id === requestedId) || null : null
+    if (state.detail && !state.detailEditing) { state.title = state.detail.title; state.description = state.detail.description }
+    if (state.sections.length && !state.sections.some(x => x.id === state.sectionId)) state.sectionId = state.sections[0].id
   } catch (error) { state.error = (error as Error).message }
-  finally { state.busy = false }
+  finally { if (generation === refreshGeneration) state.busy = false }
 }
+function onOfflineDataUpdated() { void refresh() }
+
 async function mutate(task: Task, suffix: string, method = 'POST', body: object = { expectedVersion: task.version }) {
   try { await request(`/${task.id}/${suffix}`, { method, body: JSON.stringify(body) }); await refresh() } catch (error) {
-    if (error instanceof TypeError) {
+    if (error instanceof LocalMutation) {
       const operation = suffix === 'archive' ? 'archive' : suffix === 'restore' ? 'restore' : suffix === 'section' ? 'update' : suffix === 'status' ? 'setWorkStatus' : 'move'
       const placement = suffix === 'status' || suffix === 'section' ? task.location : suffix === 'today' ? 'today' : suffix === 'backlog' || suffix === 'restore' ? 'backlog' : suffix === 'planning' ? 'planned' : 'archived'
       const payload = suffix === 'section'
@@ -725,7 +698,7 @@ async function mutate(task: Task, suffix: string, method = 'POST', body: object 
       }
       if (state.detail?.id === task.id) state.detail = local
       await cacheRows('tasks.task', state.tasks, true)
-      state.error = 'Нет сети. Изменение сохранено и будет синхронизировано позже.'; return
+      state.error = 'Изменение сохранено на устройстве; синхронизация выполняется автоматически.'; return
     }
     state.error = (error as Error).message; await refresh()
   }
@@ -734,11 +707,11 @@ async function saveDetail() {
   if (!state.detail) return
   try { await request(`/${state.detail.id}`, { method: 'PUT', body: JSON.stringify({ expectedVersion: state.detail.version, title: state.title, description: state.description }) }); await refresh() }
   catch (error) {
-    if (!(error instanceof TypeError)) { state.error = (error as Error).message; return }
+    if (!(error instanceof LocalMutation)) { state.error = (error as Error).message; return }
     const task = state.detail, payload = { operation: 'update', kind: 'task', id: task.id, expectedVersion: task.version, title: state.title, description: state.description }
     state.detail = { ...task, title: state.title, description: state.description, version: task.version + 1 }
     await queueTask('tasks.task', task.id, task.version, payload, false, state.detail); state.tasks = state.tasks.map(x => x.id === task.id ? state.detail! : x); await cacheRows('tasks.task', state.tasks, true)
-    state.error = 'Нет сети. Изменение сохранено и будет синхронизировано позже.'
+    state.error = 'Изменение сохранено на устройстве; синхронизация выполняется автоматически.'
   }
 }
 async function moveTaskSection(task: Task, sectionId: string) { await mutate(task, 'section', 'PUT', { expectedVersion: task.version, sectionId }) }
@@ -750,11 +723,11 @@ async function reorderProjectTasks(projectId: string, sourceId: string, targetId
   const order = items.map(x => ({ id: x.id, expectedVersion: x.version }))
   try { await request('/order', { method: 'PUT', body: JSON.stringify({ location: location.value, projectId, items: order }) }); await refresh() }
   catch (error) {
-    if (error instanceof TypeError) {
+    if (error instanceof LocalMutation) {
       const source = items.find(x => x.id === sourceId)!
       await queueTask('tasks.task', source.id, source.version, { operation: 'reorder', kind: 'task', id: source.id, bucket: location.value.toLowerCase(), planning: { projectId }, order }, false, { ...source, position: items.findIndex(x => x.id === source.id), version: source.version + 1 })
       state.tasks = state.tasks.map(x => { const index = items.findIndex(i => i.id === x.id); return index < 0 ? x : { ...x, position: index, version: x.version + 1 } }); await cacheRows('tasks.task', state.tasks, true)
-      state.error = 'Нет сети. Порядок сохранён и будет синхронизирован позже.'; return
+      state.error = 'Порядок сохранён на устройстве; синхронизация выполняется автоматически.'; return
     }
     state.error = (error as Error).message
   }
@@ -766,11 +739,11 @@ async function dropTaskBefore(sectionId: string, sourceId: string, targetId: str
   const [moved] = items.splice(from, 1); items.splice(to, 0, moved)
   try { await request('/order', { method: 'PUT', body: JSON.stringify({ location: location.value, sectionId, items: items.map(x => ({ id: x.id, expectedVersion: x.version })) }) }); await refresh() }
   catch (error) {
-    if (error instanceof TypeError) {
+    if (error instanceof LocalMutation) {
       const changed = items.find(x => x.id === sourceId)!
       await queueTask('tasks.task', changed.id, changed.version, { operation: 'reorder', kind: 'task', id: changed.id, bucket: location.value.toLowerCase(), sectionId, order: items.map(x => ({ id: x.id, expectedVersion: x.version })) }, false, { ...changed, position: items.findIndex(x => x.id === changed.id), version: changed.version + 1 })
       state.tasks = state.tasks.map(x => { const index = items.findIndex(i => i.id === x.id); return index < 0 ? x : { ...x, position: index, version: x.version + 1 } }); await cacheRows('tasks.task', state.tasks, true)
-      state.error = 'Нет сети. Порядок сохранён и будет синхронизирован позже.'; return
+      state.error = 'Порядок сохранён на устройстве; синхронизация выполняется автоматически.'; return
     }
     state.error = (error as Error).message
   }
@@ -791,7 +764,7 @@ async function dropGroup(sourceKey: string, targetKey: string, after = false) {
   }
   if (!navigator.onLine || await hasPendingGroupOrder(location.value)) {
     await saveQueued()
-    if (!navigator.onLine) state.error = 'Нет сети. Порядок сохранён и будет синхронизирован позже.'
+    if (!navigator.onLine) state.error = 'Порядок сохранён на устройстве; синхронизация выполняется автоматически.'
     return
   }
   try {
@@ -800,18 +773,20 @@ async function dropGroup(sourceKey: string, targetKey: string, after = false) {
     await readGroupOrder(location.value, order)
     localStorage.setItem(`tasks.groupOrder.${location.value}`, JSON.stringify(order))
   } catch (error) {
-    if (error instanceof TypeError) { await saveQueued(); state.error = 'Нет сети. Порядок сохранён и будет синхронизирован позже.' }
+    if (error instanceof LocalMutation) { await saveQueued(); state.error = 'Порядок сохранён на устройстве; синхронизация выполняется автоматически.' }
     else { state.error = (error as Error).message; await refresh() }
   }
 }
 
 watch(() => route.fullPath, () => void refresh())
 onMounted(() => {
+  window.addEventListener('offline-data-updated', onOfflineDataUpdated)
   document.addEventListener('pointerdown', onDocPointerDown, true)
   document.addEventListener('keydown', onDocKeyDown)
   void refresh()
 })
 onBeforeUnmount(() => {
+  window.removeEventListener('offline-data-updated', onOfflineDataUpdated)
   document.removeEventListener('pointerdown', onDocPointerDown, true)
   document.removeEventListener('keydown', onDocKeyDown)
   clearTimeout(toastTimer)

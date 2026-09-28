@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from '../../offline/network'
 import { getOfflineStore, saveOfflineMutation } from '../../offline/runtime'
 import type { OfflineEntity, SyncConflict, SyncOperation } from '../../offline/types'
 
@@ -26,7 +27,7 @@ export type KnowledgeSearchResult = {
 export const ENTITY_TYPE = 'knowledge.node'
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(url, { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers } })
+  const response = await fetchWithTimeout(url, { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers } })
   if (!response.ok) {
     const body = await response.json().catch(() => null) as { detail?: string } | null
     throw new Error(body?.detail || `Ошибка запроса (${response.status})`)

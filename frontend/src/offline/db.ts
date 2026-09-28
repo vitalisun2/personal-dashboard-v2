@@ -69,9 +69,14 @@ export class IndexedDbOfflineStore implements OfflineStore {
       throw new Error("Entity and queued operation must refer to the same record");
     }
     const transaction = this.database.transaction(["entities", "operations"], "readwrite");
-    transaction.objectStore("entities").put(entity);
-    transaction.objectStore("operations").add(operation);
-    await transactionDone(transaction);
+    const completion = transactionDone(transaction);
+    const queued = await requestResult(transaction.objectStore("operations").getAll()) as SyncOperation[];
+    const latest = queued.reduce((value, item) => Math.max(value, Date.parse(item.createdAt)), 0);
+    // Stable order also for several edits in one millisecond or a clock adjustment.
+    operation = { ...operation, createdAt: new Date(Math.max(Date.parse(operation.createdAt), latest + 1)).toISOString() };
+    transaction.objectStore("entities").put(JSON.parse(JSON.stringify(entity)));
+    transaction.objectStore("operations").add(JSON.parse(JSON.stringify(operation)));
+    await completion;
   }
 
   async getEntity<T = unknown>(type: string, id: string): Promise<OfflineEntity<T> | undefined> {
@@ -89,7 +94,7 @@ export class IndexedDbOfflineStore implements OfflineStore {
 
   async enqueueOperation(operation: SyncOperation): Promise<void> {
     const transaction = this.database.transaction("operations", "readwrite");
-    transaction.objectStore("operations").add(operation);
+    transaction.objectStore("operations").add(JSON.parse(JSON.stringify(operation)));
     await transactionDone(transaction);
   }
 
@@ -122,8 +127,23 @@ export class IndexedDbOfflineStore implements OfflineStore {
     const transaction = this.database.transaction(stores, "readwrite");
     transaction.objectStore("operations").delete(operationId);
     transaction.objectStore("conflicts").delete(operationId);
-    if (entity) transaction.objectStore("entities").put(entity);
+    if (entity) transaction.objectStore("entities").put(JSON.parse(JSON.stringify(entity)));
     await transactionDone(transaction);
+  }
+
+  /** Queue check and snapshot replacement are atomic; concurrent local edits win. */
+  async replaceViewSnapshots(entities: OfflineEntity[]): Promise<boolean> {
+    const transaction = this.database.transaction(["entities", "operations"], "readwrite");
+    const completion = transactionDone(transaction);
+    const pending = await requestResult(transaction.objectStore("operations").count());
+    if (pending) { await completion; return false; }
+    const store = transaction.objectStore("entities");
+    const previous = await requestResult(store.getAll()) as OfflineEntity[];
+    const types = new Set(["planning.project.view", "planning.milestone.view", "planning.feature.view", "tasks.task.view", "tasks.section.view", "tasks.groupOrder"]);
+    for (const entity of previous) if (types.has(entity.type)) store.delete([entity.type, entity.id]);
+    for (const entity of entities) store.put(entity);
+    await completion;
+    return true;
   }
 
   async getChangeCursor(): Promise<number> {
@@ -168,7 +188,7 @@ export class IndexedDbOfflineStore implements OfflineStore {
 
   private async write(storeName: string, value: unknown, key?: IDBValidKey): Promise<void> {
     const transaction = this.database.transaction(storeName, "readwrite");
-    if (key === undefined) transaction.objectStore(storeName).put(value);
+    if (key === undefined) transaction.objectStore(storeName).put(JSON.parse(JSON.stringify(value)));
     else transaction.objectStore(storeName).put(value, key);
     await transactionDone(transaction);
   }

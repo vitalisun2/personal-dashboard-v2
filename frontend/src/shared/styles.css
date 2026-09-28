@@ -22,7 +22,7 @@ button { border: 0; background: transparent; cursor: pointer; }
 .chat-head-btn { display: grid; width: 42px; height: 42px; flex: none; place-items: center; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--text); }
 .chat-head-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
 .chat-head-btn:hover { background: var(--surface-2); color: var(--text); }
-.sync-status { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; }
+.sync-status { flex: none; margin: 6px 0 0; color: var(--muted); font-size: 11px; line-height: 16px; }
 .page-content { display: flex; min-height: 0; flex: 1; flex-direction: column; padding: 0; }
 .bottom-window { z-index: 5; position: relative; flex: none; overflow: hidden; border-top: 1px solid var(--line); background: var(--bg); }
 .bottom-window { display: flex; width: 100%; padding: 7px 0 9px; }

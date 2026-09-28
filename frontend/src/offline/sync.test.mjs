@@ -167,7 +167,7 @@ test('a delete version conflict retries once with current server version and a n
   assert.deepEqual(conflicts, []);
 });
 
-test('a new server epoch clears old cached records and queued mutations before syncing', async () => {
+test('a new server epoch preserves pending local work and stops syncing', async () => {
   const entities = [{ type: 'planning.project', id: 'old-project', version: 1, deleted: false, payload: { title: 'stale' } }];
   const pending = [{ operationId: 'stale-op', type: 'planning.project', id: 'old-project', kind: 'upsert', expectedVersion: null, payload: { title: 'stale' }, createdAt: '2026-09-25T10:00:00Z' }];
   const conflicts = [{ operationId: 'stale-conflict' }];
@@ -196,13 +196,33 @@ test('a new server epoch clears old cached records and queued mutations before s
     },
   };
 
-  const result = await syncPendingOperations(store, transport);
-
-  assert.deepEqual(result, { applied: 0, conflicts: 0, pulled: 1 });
-  assert.equal(localEpoch, 'new-epoch');
+  await assert.rejects(syncPendingOperations(store, transport), /Local edits have been preserved/);
+  assert.equal(localEpoch, 'old-epoch');
+  assert.equal(pending.length, 1);
+  assert.equal(entities[0].id, 'old-project');
+  assert.equal(cursor, 99);
   assert.deepEqual(pushedEpochs, []);
-  assert.deepEqual(entities.map(entity => [entity.id, entity.deleted]), [['v1-task', false]]);
-  assert.deepEqual(pending, []);
-  assert.deepEqual(conflicts, []);
-  assert.equal(cursor, 7);
+});
+
+test('first sync preserves operations made before the device ever connected', async () => {
+  let epoch;
+  const operation = { operationId: 'first', type: 'tasks.task', id: 'a', expectedVersion: null, kind: 'upsert', payload: { title: 'Offline' }, createdAt: '2026-09-28T00:00:00Z' };
+  const pending = [operation];
+  const store = {
+    async getSyncEpoch() { return epoch; }, async setSyncEpoch(value) { epoch = value; },
+    async clearLocalData() { throw new Error('Must preserve offline work'); },
+    async listPendingOperations() { return [...pending]; },
+    async removeOperation() { pending.length = 0; }, async putEntity() {},
+    async getChangeCursor() { return 0; }, async setChangeCursor() {},
+  };
+  const transport = {
+    async getSyncEpoch() { return 'initial'; },
+    async pushOperations(request) {
+      assert.equal(request.operations[0].operationId, 'first');
+      return [{ operationId: 'first', applied: true, current: null }];
+    },
+    async pullChanges() { return { changes: [], nextSequence: 0, isComplete: true }; },
+  };
+  assert.equal((await syncPendingOperations(store, transport)).applied, 1);
+  assert.equal(epoch, 'initial');
 });

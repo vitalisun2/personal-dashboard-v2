@@ -52,8 +52,15 @@ export async function syncPendingOperations(
   pageSize = DEFAULT_PAGE_SIZE,
 ): Promise<SyncSummary> {
   const epoch = await transport.getSyncEpoch();
-  if (await store.getSyncEpoch() !== epoch) {
-    await store.clearLocalData();
+  const localEpoch = await store.getSyncEpoch();
+  if (localEpoch !== epoch) {
+    // First connection must not erase edits created before the initial sync.
+    if (localEpoch !== undefined) {
+      if ((await store.listPendingOperations()).length) {
+        throw new Error("Server data was reset. Local edits have been preserved; resolve them before switching datasets.");
+      }
+      await store.clearLocalData();
+    }
     await store.setSyncEpoch(epoch);
   }
 

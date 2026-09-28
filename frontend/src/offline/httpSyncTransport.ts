@@ -1,3 +1,4 @@
+import { fetchWithTimeout } from "./network.ts";
 import type { EntityChangePage, SyncPushRequest, SyncPushResponse, SyncTransport } from "./types";
 
 export class HttpSyncTransport implements SyncTransport {
@@ -6,7 +7,7 @@ export class HttpSyncTransport implements SyncTransport {
 
   constructor(baseUrl = "", fetcher: typeof fetch = fetch) {
     this.baseUrl = baseUrl.replace(/\/$/, "");
-    this.fetcher = (input, init) => fetcher(input, init);
+    this.fetcher = (input, init) => fetchWithTimeout(input, init, fetcher);
   }
 
   async getSyncEpoch(): Promise<string> {

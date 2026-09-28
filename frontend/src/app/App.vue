@@ -23,7 +23,11 @@ const chatArea = computed(() => {
   return ['knowledge', 'tasks', 'planning'].includes(section) ? section : 'general'
 })
 const hideBottomNav = computed(() => currentSection.value === 'chat')
-const syncStatus = ref<SyncStatus>('ready')
+const syncStatus = ref<SyncStatus>('syncing')
+const syncLabels: Record<SyncStatus, string> = {
+  ready: 'Данные доступны офлайн', syncing: 'Синхронизация…', offline: 'Работа без сети',
+  conflict: 'Конфликт изменений — правки сохранены', error: 'Синхронизация отложена',
+}
 let unsubscribeSyncStatus: (() => void) | undefined
 const appFrame = ref<HTMLElement | null>(null)
 let viewport: VisualViewport | null = null
@@ -108,8 +112,8 @@ onUnmounted(() => {
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 17.2 4 20v-4.9A7.4 7.4 0 0 1 3 11.4C3 7.3 6.8 4 11.5 4S20 7.3 20 11.4s-3.8 7.4-8.5 7.4c-1.6 0-3.1-.4-4.3-1.1Z"/><path d="m16.9 2.7.45 1.15 1.15.45-1.15.45-.45 1.15-.45-1.15-1.15-.45 1.15-.45.45-1.15Z"/></svg>
           </RouterLink>
           <AppearanceSettings />
-          <span class="sync-status" :data-status="syncStatus" aria-live="polite">{{ syncStatus }}</span>
         </header>
+        <span class="sync-status" :data-status="syncStatus" aria-live="polite">{{ syncLabels[syncStatus] }}</span>
         <div class="page-content"><RouterView /></div>
       </div>
       <nav v-if="!hideBottomNav" class="bottom-window" aria-label="Навигация">

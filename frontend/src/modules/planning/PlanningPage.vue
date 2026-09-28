@@ -119,16 +119,17 @@ function taskMeta(task: Task): { label: string; kind: string } | null {
 function statusName(status: string | number) { return ({ '0': 'planned', '1': 'active', '2': 'done', planned: 'planned', active: 'active', done: 'done', Planned: 'planned', Active: 'active', Done: 'done' } as Record<string, string>)[String(status)] || 'planned' }
 function isContextActive(kind: string, id: string) { return state.menuOpen && state.menuKind === kind && state.menuId === id }
 
+// Mutations always enter the durable local queue; the runtime owns network sync.
+class LocalMutation extends TypeError {}
 async function request<T>(base: string, path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${base}${path}`, { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers } })
-  if (!response.ok) { const body = await response.json().catch(() => ({})); throw new Error(body.error || `Запрос не выполнен (${response.status})`) }
-  return response.status === 204 ? undefined as T : response.json()
+  void base; void path; void init
+  throw new LocalMutation('Save locally before synchronizing')
 }
 function offlineId() { return crypto.randomUUID() }
 async function queuePlanning(type: 'planning.project' | 'planning.milestone' | 'planning.feature', id: string, version: number | null, payload: object, deleted = false, viewPayload?: object) {
   const store = await getOfflineStore(), pending = (await store.listPendingOperations()).filter(x => x.type === type && x.id === id)
   const tail = pending[pending.length - 1]
-  const expectedVersion = tail ? (tail.expectedVersion === null ? 1 : tail.expectedVersion + 1) : version
+  const expectedVersion = tail ? Math.max(version ?? 0, tail.expectedVersion === null ? 1 : tail.expectedVersion + 1) : version
   const payloadWithVersion = { ...payload, ...(expectedVersion === null ? {} : { expectedVersion }) }
   const operationId = offlineId(), now = new Date().toISOString()
   const entity: OfflineEntity = { type, id, version: expectedVersion === null ? 1 : expectedVersion + 1, payload: viewPayload ?? payloadWithVersion, deleted, updatedAt: now }
@@ -145,7 +146,7 @@ async function queueTaskCreate(id: string, payload: object, viewPayload: Task) {
 async function queueTaskMutation(task: Task, payload: object, viewPayload: object = task) {
   const store = await getOfflineStore(), pending = (await store.listPendingOperations()).filter(x => x.type === 'tasks.task' && x.id === task.id)
   const tail = pending[pending.length - 1]
-  const expectedVersion = tail ? (tail.expectedVersion === null ? 1 : tail.expectedVersion + 1) : task.version
+  const expectedVersion = tail ? Math.max(task.version, tail.expectedVersion === null ? 1 : tail.expectedVersion + 1) : task.version
   const payloadWithVersion = { ...payload, expectedVersion }
   const now = new Date().toISOString(), entity: OfflineEntity = { type: 'tasks.task', id: task.id, version: expectedVersion + 1, payload: viewPayload, deleted: false, updatedAt: now }
   const operation: SyncOperation = { operationId: offlineId(), type: 'tasks.task', id: task.id, expectedVersion, kind: 'upsert', payload: payloadWithVersion, createdAt: now }
@@ -165,41 +166,20 @@ async function cachedRows<T>(type: string): Promise<T[]> {
   const rows = await (await getOfflineStore()).listEntities(`${type}.view`)
   return rows.filter(row => !row.deleted).map(row => row.payload as T)
 }
+let refreshGeneration = 0
 async function refresh() {
-  state.busy = true; state.error = ''
+  const generation = ++refreshGeneration
+  state.busy = true
   try {
-      try {
-        state.projects = await request<Project[]>(api, `/projects?includeArchived=${state.showArchived}`)
-        await cacheRows('planning.project', state.projects)
-        for (const p of state.projects) {
-          await cacheRows('planning.milestone', p.milestones)
-          for (const m of p.milestones) await cacheRows('planning.feature', m.features)
-        }
-        state.tasks = await request<Task[]>(taskApi, ''); await cacheRows('tasks.task', state.tasks)
-      const store = await getOfflineStore(), pending = await store.listPendingOperations(), localProjects = await cachedRows<Project>('planning.project'), localTasks = await cachedRows<Task>('tasks.task')
-      const localProjectById = new Map(localProjects.map(item => [item.id, item])), affectedProjects = new Set<string>(), deletedProjects = new Set<string>(), affectedTasks = new Set<string>()
-      for (const op of pending) {
-        const data = op.payload as { projectId?: string; order?: Array<{ id: string }> } | undefined
-        if (op.type === 'planning.project') { affectedProjects.add(op.id); if (op.kind === 'delete') deletedProjects.add(op.id) }
-        if ((op.type === 'planning.milestone' || op.type === 'planning.feature') && data?.projectId) affectedProjects.add(data.projectId)
-        if (op.type === 'tasks.task') affectedTasks.add(op.id)
-        for (const item of data?.order || []) { if (op.type === 'tasks.task') affectedTasks.add(item.id) }
-      }
-      state.projects = state.projects.filter(item => !deletedProjects.has(item.id)).map(item => affectedProjects.has(item.id) ? localProjectById.get(item.id) || item : item)
-      for (const id of affectedProjects) if (!state.projects.some(item => item.id === id) && localProjectById.has(id) && !deletedProjects.has(id)) state.projects.push(localProjectById.get(id)!)
-      const localTaskById = new Map(localTasks.map(item => [item.id, item]))
-      state.tasks = state.tasks.filter(item => !affectedTasks.has(item.id)).concat([...affectedTasks].map(id => localTaskById.get(id)).filter((item): item is Task => !!item))
-    } catch {
-      state.projects = (await cachedRows<Project>('planning.project')).filter(p => state.showArchived || !p.isArchived)
-      state.tasks = await cachedRows<Task>('tasks.task')
-      if (!state.projects.length && !state.tasks.length) throw new Error('Нет сети и сохранённых данных для планирования.')
-      state.error = 'Нет сети. Показаны сохранённые данные.'
-    }
-    const active = state.projects.find(item => item.id === projectId.value)
-    if (!projectId.value && active) await router.replace(`/planning/projects/${active.id}`)
+    const [projects, tasks] = await Promise.all([cachedRows<Project>('planning.project'), cachedRows<Task>('tasks.task')])
+    if (generation !== refreshGeneration) return
+    state.projects = projects.filter(p => state.showArchived || !p.isArchived)
+    state.tasks = tasks
   } catch (error) { state.error = (error as Error).message }
-  finally { state.busy = false }
+  finally { if (generation === refreshGeneration) state.busy = false }
 }
+function onOfflineDataUpdated() { void refresh() }
+
 function goProject(id: string) { closeContextMenu(); state.detailTaskId = ''; state.orderMode = false; state.pickerOpen = false; void router.push(`/planning/projects/${id}`) }
 function goMilestone(id: string) { closeContextMenu(); state.detailTaskId = ''; state.orderMode = false; state.pickerOpen = false; if (project.value) void router.push(`/planning/projects/${project.value.id}/milestones/${id}`) }
 function goFeature(id: string) { closeContextMenu(); state.detailTaskId = ''; state.orderMode = false; state.pickerOpen = false; if (project.value && milestone.value) void router.push(`/planning/projects/${project.value.id}/milestones/${milestone.value.id}/features/${id}`) }
@@ -224,14 +204,14 @@ async function setFeatureStatus(status: 'done' | 'active') {
       await cacheRows('planning.feature', epic.features)
     }
   } catch (error) {
-    if (error instanceof TypeError) {
+    if (error instanceof LocalMutation) {
       try {
         const local = { ...f, status, version: f.version + 1 }
         await queuePlanning('planning.feature', f.id, f.version, { operation: 'setFeatureStatus', kind: 'feature', id: f.id, projectId: p.id, milestoneId: m.id, featureStatus: status }, false, local)
         m.features = m.features.map(item => item.id === f.id ? local : item)
         m.version += 1; p.version += 1
         await cacheRows('planning.project', state.projects, true)
-        state.error = 'Нет сети. Статус сохранён и будет синхронизирован позже.'
+        state.error = 'Статус сохранён на устройстве; синхронизация выполняется автоматически.'
       } catch (saveError) { state.error = (saveError as Error).message }
     } else state.error = (error as Error).message
   } finally { state.savingFeatureStatus = false }
@@ -263,7 +243,7 @@ async function save() {
         if (createdMilestoneId && project.value) await router.push(`/planning/projects/${project.value.id}/milestones/${createdMilestoneId}`)
         else if (createdFeatureId && project.value && milestone.value) await router.push(`/planning/projects/${project.value.id}/milestones/${milestone.value.id}/features/${createdFeatureId}`)
       } catch (error) {
-    if (error instanceof TypeError) {
+    if (error instanceof LocalMutation) {
       const kind = state.editType || state.createType
       if (state.editType) {
         const entityType = kind === 'project' ? 'planning.project' : kind === 'milestone' ? 'planning.milestone' : 'planning.feature'
@@ -274,24 +254,29 @@ async function save() {
           if (kind === 'project') state.projects = state.projects.map(x => x.id === current.id ? { ...x, ...local } as Project : x)
           else if (kind === 'milestone' && project.value) project.value.milestones = project.value.milestones.map(x => x.id === current.id ? { ...x, ...local } as Milestone : x)
           else if (kind === 'feature' && editFeature.value) editFeature.value.milestone.features = editFeature.value.milestone.features.map(x => x.id === current.id ? { ...x, ...local } as Feature : x)
+          if (kind !== 'project' && project.value) project.value.version += 1
+          if (kind === 'feature' && editFeature.value) editFeature.value.milestone.version += 1
           await cacheRows('planning.project', state.projects, true)
         }
       } else {
         const id = offlineId()
         if (kind === 'project') {
           const local: Project = { id, title, description: state.description, version: 1, isArchived: false, progressPercent: 0, milestones: [] }
-          await queuePlanning('planning.project', id, null, { operation: 'create', kind: 'project', id, title, description: state.description }, false, local); state.projects.push(local)
+          await queuePlanning('planning.project', id, null, { operation: 'create', kind: 'project', id, title, description: state.description }, false, local); state.projects.push(local); createdProjectId = id
         } else if (kind === 'milestone' && project.value) {
           const local: Milestone = { id, title, description: state.description, version: 1, position: project.value.milestones.length, progressPercent: 0, features: [] }
-          await queuePlanning('planning.milestone', id, null, { operation: 'create', kind: 'milestone', id, projectId: project.value.id, expectedParentVersion: project.value.version, title, description: state.description }, false, local); project.value.milestones.push(local); project.value.version += 1
+          await queuePlanning('planning.milestone', id, null, { operation: 'create', kind: 'milestone', id, projectId: project.value.id, expectedParentVersion: project.value.version, title, description: state.description }, false, local); project.value.milestones.push(local); project.value.version += 1; createdMilestoneId = id
         } else if (kind === 'feature' && project.value && milestone.value) {
           const local: Feature = { id, title, description: state.description, version: 1, position: milestone.value.features.length, status: 'planned' }
-          await queuePlanning('planning.feature', id, null, { operation: 'create', kind: 'feature', id, projectId: project.value.id, milestoneId: milestone.value.id, expectedParentVersion: milestone.value.version, title, description: state.description }, false, local); milestone.value.features.push(local); milestone.value.version += 1; project.value.version += 1
+          await queuePlanning('planning.feature', id, null, { operation: 'create', kind: 'feature', id, projectId: project.value.id, milestoneId: milestone.value.id, expectedParentVersion: milestone.value.version, title, description: state.description }, false, local); milestone.value.features.push(local); milestone.value.version += 1; project.value.version += 1; createdFeatureId = id
         }
         await cacheRows('planning.project', state.projects, true)
       }
       state.createType = ''; state.editType = ''; state.title = ''; state.description = ''
-      state.error = 'Нет сети. Изменение сохранено и будет синхронизировано позже.'
+      if (createdProjectId) await router.replace(`/planning/projects/${createdProjectId}`)
+      else if (createdMilestoneId && project.value) await router.push(`/planning/projects/${project.value.id}/milestones/${createdMilestoneId}`)
+      else if (createdFeatureId && project.value && milestone.value) await router.push(`/planning/projects/${project.value.id}/milestones/${milestone.value.id}/features/${createdFeatureId}`)
+      state.error = 'Изменение сохранено на устройстве; синхронизация выполняется автоматически.'
       return
     }
     state.error = (error as Error).message
@@ -302,12 +287,12 @@ async function updateTask(task: Task, patch: { title?: string; description?: str
     await request(taskApi, `/${task.id}`, { method: 'PUT', body: JSON.stringify({ expectedVersion: task.version, ...patch }) })
     await refresh()
   } catch (error) {
-    if (error instanceof TypeError) {
+    if (error instanceof LocalMutation) {
       const local = { ...task, ...patch, version: task.version + 1 }
       await queueTaskMutation(task, { operation: 'update', kind: 'task', id: task.id, expectedVersion: task.version, ...patch }, local)
       state.tasks = state.tasks.map(x => x.id === task.id ? local : x)
       await cacheRows('tasks.task', state.tasks, true)
-      state.error = 'Нет сети. Изменение сохранено и будет синхронизировано позже.'
+      state.error = 'Изменение сохранено на устройстве; синхронизация выполняется автоматически.'
       return
     }
     state.error = (error as Error).message
@@ -319,11 +304,11 @@ async function addTask() {
     await request(taskApi, '', { method: 'POST', body: JSON.stringify({ title: state.title.trim(), description: state.description, projectId: project.value.id, milestoneId: milestone.value.id, featureId: feature.value.id, sectionId: null }) })
     state.createType = ''; state.title = ''; state.description = ''; await refresh()
   } catch (error) {
-    if (error instanceof TypeError) {
+    if (error instanceof LocalMutation) {
       if (!project.value || !milestone.value || !feature.value) { state.error = (error as Error).message; return }
       const id = offlineId(), payload = { operation: 'create', kind: 'task', id, title: state.title.trim(), description: state.description, planning: { projectId: project.value.id, milestoneId: milestone.value.id, featureId: feature.value.id }, placement: 'planned', workStatus: 'new', sectionId: null }
       const local: Task = { id, title: state.title.trim(), description: state.description, projectId: project.value.id, milestoneId: milestone.value.id, featureId: feature.value.id, location: 'planned', workStatus: 'new', position: linkedTasks.value.length, version: 1 }
-      await queueTaskCreate(id, payload, local); state.tasks.push(local); state.title = ''; state.description = ''; state.createType = ''; await cacheRows('tasks.task', state.tasks, true); state.error = 'Нет сети. Задача сохранена и будет синхронизирована позже.'; return
+      await queueTaskCreate(id, payload, local); state.tasks.push(local); state.title = ''; state.description = ''; state.createType = ''; await cacheRows('tasks.task', state.tasks, true); state.error = 'Задача сохранена на устройстве; синхронизация выполняется автоматически.'; return
     }
     state.error = (error as Error).message
   }
@@ -331,13 +316,13 @@ async function addTask() {
 async function moveTask(task: Task, suffix: string) {
   try { await request(taskApi, `/${task.id}/${suffix}`, { method: 'POST', body: JSON.stringify({ expectedVersion: task.version }) }); await refresh() }
   catch (error) {
-    if (error instanceof TypeError) {
+    if (error instanceof LocalMutation) {
       const placement = suffix === 'backlog' ? 'backlog' : suffix === 'planning' ? 'planned' : 'today'
       const local = { ...task, location: placement, workStatus: 'new', version: task.version + 1 }
       await queueTaskMutation(task, { operation: 'move', kind: 'task', id: task.id, expectedVersion: task.version, placement, workStatus: 'new', sectionId: null }, local)
       state.tasks = state.tasks.map(x => x.id === task.id ? local : x)
       await cacheRows('tasks.task', state.tasks, true)
-      state.error = 'Нет сети. Перенос сохранён и будет синхронизирован позже.'; return
+      state.error = 'Перенос сохранён на устройстве; синхронизация выполняется автоматически.'; return
     }
     state.error = (error as Error).message
   }
@@ -348,7 +333,9 @@ function confirmAction(title: string, body: string, label: string, onConfirm: ()
 }
 function confirmAccept() { const current = state.confirm; state.confirm = null; current?.onConfirm() }
 function deleteEntity(type: 'project' | 'milestone' | 'feature', item: Project | Milestone | Feature) {
-  confirmAction(`Удалить «${item.title}»?`, 'Плановые задачи будут удалены. Задачи из Backlog и Сегодня останутся в разделе проекта.', 'Удалить', () => void remove(type, item))
+  const linked = state.tasks.some(task => type === 'project' ? task.projectId === item.id : type === 'milestone' ? task.milestoneId === item.id : task.featureId === item.id)
+  if (linked) { state.error = 'Сначала удалите связанные задачи или измените их связь с планированием.'; return }
+  confirmAction(`Удалить «${item.title}»?`, 'Элемент будет удалён из планирования.', 'Удалить', () => void remove(type, item))
 }
 async function remove(type: string, item: Project | Milestone | Feature) {
   try {
@@ -359,33 +346,42 @@ async function remove(type: string, item: Project | Milestone | Feature) {
     else await router.replace(`/planning/projects/${project.value!.id}/milestones/${milestone.value!.id}`)
     await refresh()
   } catch (error) {
-    if (error instanceof TypeError) {
+    if (error instanceof LocalMutation) {
       const entityType = type === 'project' ? 'planning.project' : type === 'milestone' ? 'planning.milestone' : 'planning.feature'
       const kind = type === 'project' ? 'project' : type === 'milestone' ? 'milestone' : 'feature'
       await queuePlanning(entityType, item.id, item.version, { operation: 'delete', kind, id: item.id, projectId: type === 'project' ? undefined : project.value?.id, milestoneId: type === 'feature' ? milestone.value?.id : undefined, expectedVersion: item.version }, true)
+      const parentProjectId = project.value?.id, parentMilestoneId = milestone.value?.id
       if (type === 'project') state.projects = state.projects.filter(x => x.id !== item.id)
       else if (type === 'milestone' && project.value) project.value.milestones = project.value.milestones.filter(x => x.id !== item.id)
       else if (type === 'feature' && milestone.value) milestone.value.features = milestone.value.features.filter(x => x.id !== item.id)
+      if (type !== 'project' && project.value) {
+        project.value.version += 1
+        const siblings = type === 'milestone' ? project.value.milestones : milestone.value?.features || []
+        siblings.forEach((sibling, index) => { if (sibling.position !== index) { sibling.position = index; sibling.version += 1 } })
+        if (type === 'feature' && milestone.value) milestone.value.version += 1
+      }
       await cacheRows('planning.project', state.projects, true)
-      state.error = 'Нет сети. Удаление поставлено в очередь.'; return
+      if (type === 'project') await router.replace('/planning')
+      else if (type === 'milestone') await router.replace(`/planning/projects/${parentProjectId}`)
+      else await router.replace(`/planning/projects/${parentProjectId}/milestones/${parentMilestoneId}`)
+      state.error = 'Удаление поставлено в очередь.'; return
     }
     state.error = (error as Error).message
   }
 }
 function deleteTask(task: Task) {
-  const sent = taskState(task) !== 'planned'
-  confirmAction(`Удалить «${task.title}» из планирования?`, sent ? 'Задача останется в Task Tracker без связи с планом.' : 'Задача будет удалена из плана.', 'Удалить', () => void performDeleteTask(task))
+  confirmAction(`Удалить «${task.title}»?`, 'Задача будет удалена из планирования и списка задач. Восстановить её будет нельзя.', 'Удалить', () => void performDeleteTask(task))
 }
 async function performDeleteTask(task: Task) {
   try { await request(taskApi, `/${task.id}`, { method: 'DELETE', body: JSON.stringify({ expectedVersion: task.version }) }); state.tasks = state.tasks.filter(x => x.id !== task.id); if (state.detailTaskId === task.id) state.detailTaskId = ''; await refresh() }
   catch (error) {
-    if (error instanceof TypeError) {
+    if (error instanceof LocalMutation) {
       const store = await getOfflineStore(), pending = (await store.listPendingOperations()).filter(x => x.type === 'tasks.task' && x.id === task.id), tail = pending[pending.length - 1]
-      const expectedVersion = tail ? (tail.expectedVersion === null ? 1 : tail.expectedVersion + 1) : task.version, now = new Date().toISOString()
+      const expectedVersion = tail ? Math.max(task.version, tail.expectedVersion === null ? 1 : tail.expectedVersion + 1) : task.version, now = new Date().toISOString()
       const payload = { operation: 'delete', kind: 'task', id: task.id, expectedVersion }
       await saveOfflineMutation({ type: 'tasks.task', id: task.id, version: expectedVersion! + 1, payload: task, deleted: true, updatedAt: now }, { operationId: offlineId(), type: 'tasks.task', id: task.id, expectedVersion, kind: 'delete', payload, createdAt: now })
       await store.putEntity({ type: 'tasks.task.view', id: task.id, version: expectedVersion! + 1, payload: null, deleted: true, updatedAt: now })
-      state.tasks = state.tasks.filter(x => x.id !== task.id); if (state.detailTaskId === task.id) state.detailTaskId = ''; await cacheRows('tasks.task', state.tasks, true); state.error = 'Нет сети. Удаление сохранено и будет синхронизировано позже.'; return
+      state.tasks = state.tasks.filter(x => x.id !== task.id); if (state.detailTaskId === task.id) state.detailTaskId = ''; await cacheRows('tasks.task', state.tasks, true); state.error = 'Удаление сохранено на устройстве; синхронизация выполняется автоматически.'; return
     }
     state.error = (error as Error).message
   }
@@ -600,7 +596,7 @@ async function commitPlanOrder(type: 'milestone' | 'feature', ids: string[]) {
   const expectedVersion = type === 'milestone' ? project.value.version : milestone.value!.version
   try { await request(api, path, { method: 'PUT', body: JSON.stringify({ expectedVersion, ids }) }); await refresh() }
   catch (error) {
-    if (error instanceof TypeError) {
+    if (error instanceof LocalMutation) {
       if (type === 'milestone') {
         const original = project.value.milestones
         const local = { ...project.value, version: project.value.version + 1, milestones: ids.map((id, position) => { const item = original.find(row => row.id === id)!; return { ...item, position, version: item.version + (item.position === position ? 0 : 1) } }) }
@@ -617,9 +613,10 @@ async function commitPlanOrder(type: 'milestone' | 'feature', ids: string[]) {
         const sourceVersion = original.find(item => item.id === moved.id)!.version
         await queuePlanning('planning.feature', moved.id, sourceVersion, { operation: 'reorder', kind: 'feature', id: moved.id, projectId: project.value.id, milestoneId: milestone.value.id, expectedVersion: sourceVersion, expectedParentVersion: milestone.value.version, order }, false, moved)
         project.value.milestones = project.value.milestones.map(item => item.id === local.id ? local : item)
+        project.value.version += 1
       }
       await cacheRows('planning.project', state.projects, true)
-      state.error = 'Нет сети. Порядок сохранён и будет синхронизирован позже.'; return
+      state.error = 'Порядок сохранён на устройстве; синхронизация выполняется автоматически.'; return
     }
     state.error = (error as Error).message
   }
@@ -633,14 +630,14 @@ async function commitTaskOrder(ids: string[]) {
     await request(taskApi, '/order', { method: 'PUT', body: JSON.stringify({ location: 'planned', projectId: project.value.id, milestoneId: milestone.value.id, featureId: feature.value.id, items: order }) })
     await refresh()
   } catch (error) {
-    if (error instanceof TypeError) {
+    if (error instanceof LocalMutation) {
       const index = ids.findIndex((id, i) => tasks[i]?.id !== id)
       const source = tasks.find(t => t.id === (ids[index] || ids[0]))!
       const local = { ...source, position: ids.indexOf(source.id), version: source.version + 1 }
       await queueTaskMutation(source, { operation: 'reorder', kind: 'task', id: source.id, placement: 'planned', planning: { projectId: project.value.id, milestoneId: milestone.value.id, featureId: feature.value.id }, order }, local)
       state.tasks = state.tasks.map(x => { const pos = ids.indexOf(x.id); return pos < 0 ? x : { ...x, position: pos, version: x.version + 1 } })
       await cacheRows('tasks.task', state.tasks, true)
-      state.error = 'Нет сети. Порядок сохранён и будет синхронизирован позже.'; return
+      state.error = 'Порядок сохранён на устройстве; синхронизация выполняется автоматически.'; return
     }
     state.error = (error as Error).message
   }
@@ -648,11 +645,17 @@ async function commitTaskOrder(ids: string[]) {
 function onUnmountedCleanup() { dragCleanup?.(false); dragCleanup = null; window.clearTimeout(contextTarget?.timer || 0) }
 watch(() => route.fullPath, () => { state.detailTaskId = ''; state.orderMode = false; state.pickerOpen = false; closeContextMenu(); void refresh() })
 onMounted(() => {
+  window.addEventListener('offline-data-updated', onOfflineDataUpdated)
   document.addEventListener('pointerdown', onDocumentPointerDown, true)
   document.addEventListener('keydown', onDocumentKeydown)
   void refresh()
 })
-onBeforeUnmount(onUnmountedCleanup)
+onBeforeUnmount(() => {
+  window.removeEventListener('offline-data-updated', onOfflineDataUpdated)
+  document.removeEventListener('pointerdown', onDocumentPointerDown, true)
+  document.removeEventListener('keydown', onDocumentKeydown)
+  onUnmountedCleanup()
+})
 </script>
 
 <template>

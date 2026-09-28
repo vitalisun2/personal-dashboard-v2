@@ -1,3 +1,4 @@
+import { refreshOfflineSnapshots } from './snapshots'
 import { IndexedDbOfflineStore, openOfflineDb } from './db'
 import { HttpSyncTransport } from './httpSyncTransport'
 import { syncPendingOperations } from './sync'
@@ -9,7 +10,7 @@ let storePromise: Promise<IndexedDbOfflineStore> | undefined
 let running: Promise<void> | undefined
 let rerun = false
 let started = false
-let status: SyncStatus = 'ready'
+let status: SyncStatus = 'syncing'
 const listeners = new Set<(next: SyncStatus) => void>()
 
 export function getOfflineStore(): Promise<IndexedDbOfflineStore> {
@@ -32,7 +33,7 @@ function setStatus(next: SyncStatus): void {
 export async function saveOfflineMutation(entity: OfflineEntity, operation: SyncOperation): Promise<void> {
   const store = await getOfflineStore()
   await store.saveEntityAndQueue(entity, operation)
-  requestSync()
+  window.setTimeout(requestSync, 0)
 }
 
 export function requestSync(): void {
@@ -60,6 +61,7 @@ async function runSync(): Promise<void> {
   try {
     const store = await getOfflineStore()
     await syncPendingOperations(store, new HttpSyncTransport())
+    if (await refreshOfflineSnapshots(store)) window.dispatchEvent(new Event('offline-data-updated'))
     setStatus((await store.listConflicts()).length ? 'conflict' : 'ready')
   } catch {
     // Keep the IndexedDB queue intact. A later online/visibility/timer event retries.
@@ -70,6 +72,7 @@ async function runSync(): Promise<void> {
 export function startSyncLifecycle(): void {
   if (started) return
   started = true
+  void navigator.storage?.persist?.().catch(() => false)
   window.addEventListener('online', requestSync)
   window.addEventListener('offline', () => setStatus('offline'))
   document.addEventListener('visibilitychange', () => {
