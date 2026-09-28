@@ -143,6 +143,7 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
         sectionId = task.SectionId,
         archivedSectionName = task.ArchivedSectionName,
         position = task.Position,
+        planningPosition = task.PlanningPosition,
         path,
         url = $"/tasks/{task.Id}",
         updatedAtUtc = task.UpdatedAtUtc

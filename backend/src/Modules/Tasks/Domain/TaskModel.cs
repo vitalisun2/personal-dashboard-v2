@@ -26,6 +26,7 @@ public sealed class TaskItem
     public Guid? SectionId { get; private set; }
     public string? ArchivedSectionName { get; private set; }
     public int Position { get; private set; }
+    public int PlanningPosition { get; private set; }
     public long Version { get; private set; } = 1;
     public DateTimeOffset UpdatedAtUtc { get; private set; } = DateTimeOffset.UtcNow;
     public void Edit(string title, string? description) { Title = Required(title); Description = description?.Trim() ?? ""; Touch(); }
@@ -76,6 +77,7 @@ public sealed class TaskItem
     }
     internal static string Required(string value) => string.IsNullOrWhiteSpace(value) ? throw new ArgumentException("Value is required.") : value.Trim();
     public void SetPosition(int position) { Position = position; Touch(); }
+    public void SetPlanningPosition(int position) { PlanningPosition = position; Touch(); }
     public void RefreshPlanningProjection() => Touch();
     private void Touch() { Version++; UpdatedAtUtc = DateTimeOffset.UtcNow; }
 }

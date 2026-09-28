@@ -109,7 +109,8 @@ public sealed record TaskEntityState(
     Guid? SectionId,
     string? Bucket,
     int Position,
-    string? ArchivedSectionName = null);
+    string? ArchivedSectionName = null,
+    int PlanningPosition = 0);
 
 public sealed record TaskMutation(
     TaskMutationKind Operation,

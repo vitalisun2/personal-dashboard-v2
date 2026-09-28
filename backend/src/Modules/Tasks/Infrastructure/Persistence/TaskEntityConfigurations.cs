@@ -16,6 +16,7 @@ public sealed class TaskItemConfiguration : IEntityTypeConfiguration<TaskItem>
         builder.Property(x => x.Location).HasConversion<string>().HasMaxLength(20).IsRequired();
         builder.Property(x => x.WorkStatus).HasConversion<string>().HasMaxLength(20).IsRequired();
         builder.Property(x => x.Position).IsRequired();
+        builder.Property(x => x.PlanningPosition).IsRequired();
         builder.Property(x => x.Version).IsConcurrencyToken();
         builder.Property(x => x.UpdatedAtUtc).IsRequired();
         builder.HasIndex(x => new { x.ProjectId, x.MilestoneId, x.FeatureId });

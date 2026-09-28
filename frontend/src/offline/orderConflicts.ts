@@ -1,4 +1,4 @@
-import { fetchWithTimeout } from './network'
+import { fetchWithTimeout } from './network.ts'
 import type { IndexedDbOfflineStore } from './db'
 import type { OfflineEntity, SyncConflict, SyncOperation } from './types'
 import type { EntityConflict } from './conflicts'
@@ -67,9 +67,10 @@ async function download(operation: SyncOperation): Promise<{ rows: Row[]; all: R
     return { rows, all: rows, parentVersion: order.version }
   }
   const all: Row[] = await get('/api/v2/tasks')
-  const rows = all.filter(row => lower(row.location) === lower(p.placement ?? p.bucket) &&
+  const planningDisplay = lower(p.placement) === 'planningdisplay'
+  const rows = all.filter(row => (planningDisplay || lower(row.location) === lower(p.placement ?? p.bucket)) &&
     (p.planning?.projectId ? row.projectId === p.planning.projectId &&
-      (lower(p.placement) !== 'planned' || row.milestoneId === p.planning.milestoneId && row.featureId === p.planning.featureId)
+      (!(planningDisplay || lower(p.placement) === 'planned') || row.milestoneId === p.planning.milestoneId && row.featureId === p.planning.featureId)
       : !row.projectId && (row.sectionId ?? null) === (p.sectionId ?? null)))
   return { rows, all }
 }
@@ -80,7 +81,9 @@ async function snapshot(store: IndexedDbOfflineStore, operation: SyncOperation, 
   if (!fresh && cached?.payload && Date.now() - Date.parse(cached.updatedAt ?? '') < 10_000) return cached.payload
   try {
     const value = await download(operation)
-    value.rows.sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+    const planningDisplay = lower(data(operation).placement) === 'planningdisplay'
+    value.rows.sort((a, b) => (planningDisplay ? a.planningPosition ?? a.position ?? 0 : a.position ?? 0) -
+      (planningDisplay ? b.planningPosition ?? b.position ?? 0 : b.position ?? 0))
     await store.putEntity({ type: snapshotType, id: key, version: 0, deleted: false, payload: value, updatedAt: new Date().toISOString() })
     return value
   } catch (error) {
@@ -169,9 +172,10 @@ export function orderViewChanges(conflict: EntityConflict, choice: 'local' | 'se
   const positioned = new Map(selected.map(({ id }, position) => {
     const server = rowById.get(id)!
     const cached = entities.find(row => row.type === `${type}.view` && row.id === id) ?? entities.find(row => row.type === type && row.id === id)
+    const planningDisplay = type === 'tasks.task' && lower(order.source.placement) === 'planningdisplay'
     const increment = choice === 'local' && (type.startsWith('tasks.') || server.position !== position) ? 1 : 0
     const version = pendingContent(id) ? cached?.version ?? server.version : server.version + increment
-    const payload = { ...server, ...(cached?.payload as Payload ?? {}), position, version }
+    const payload = { ...server, ...(cached?.payload as Payload ?? {}), ...(planningDisplay ? { planningPosition: choice === 'local' ? position : server.planningPosition } : { position }), version }
     const record = { type: type === 'knowledge.node' ? type : `${type}.view`, id, version, payload, deleted: false }
     changes.push(record)
     return [id, payload]

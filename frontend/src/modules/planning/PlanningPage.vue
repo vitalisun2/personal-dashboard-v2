@@ -11,7 +11,7 @@ import { epicProgress, projectProgress, featureTaskProgress } from './progress'
 type Feature = { id: string; title: string; description: string; position: number; version: number; status: string | number }
 type Milestone = { id: string; title: string; description: string; position: number; version: number; progressPercent: number; features: Feature[] }
 type Project = { id: string; title: string; description: string; version: number; isArchived: boolean; progressPercent: number; milestones: Milestone[] }
-type Task = { id: string; title: string; description: string; projectId?: string; milestoneId?: string; featureId?: string; location: string | number; workStatus: string | number; position: number; version: number }
+type Task = { id: string; title: string; description: string; projectId?: string; milestoneId?: string; featureId?: string; location: string | number; workStatus: string | number; position: number; planningPosition?: number | null; version: number }
 type ContextItem = { label: string; danger?: boolean; action: () => void }
 
 const api = '/api/v2/planning', taskApi = '/api/v2/tasks'
@@ -34,9 +34,8 @@ const milestone = computed(() => project.value?.milestones.find(item => item.id 
 const feature = computed(() => milestone.value?.features.find(item => item.id === featureId.value) || null)
 const depth = computed(() => feature.value ? 3 : milestone.value ? 2 : project.value ? 1 : 0)
 const linkedTasks = computed(() => state.tasks.filter(item => item.featureId === featureId.value))
-const visibleTasks = computed(() => linkedTasks.value.filter(item => workLower(item.workStatus) !== 'done').sort((a, b) => a.position - b.position))
+const visibleTasks = computed(() => linkedTasks.value.filter(item => workLower(item.workStatus) !== 'done').sort((a, b) => (a.planningPosition ?? a.position) - (b.planningPosition ?? b.position)))
 const taskProgress = computed(() => featureTaskProgress(linkedTasks.value))
-const plannedFeatureTasks = computed(() => linkedTasks.value.filter(item => taskState(item) === 'planned').sort((a, b) => a.position - b.position))
 const detailTask = computed(() => state.detailTaskId ? state.tasks.find(item => item.id === state.detailTaskId) || null : null)
 const editMilestone = computed(() => project.value?.milestones.find(item => item.id === state.editId) || null)
 const editProject = computed(() => state.projects.find(item => item.id === state.editId) || null)
@@ -583,7 +582,7 @@ function orderDragStart(event: PointerEvent, _id: string) {
 function commitOrderAtTarget(sourceId: string, targetId: string, after: boolean) {
   const ids = depth.value === 1 ? project.value?.milestones.map(item => item.id)
     : depth.value === 2 ? milestone.value?.features.map(item => item.id)
-      : depth.value === 3 ? plannedFeatureTasks.value.map(item => item.id) : null
+      : depth.value === 3 ? visibleTasks.value.map(item => item.id) : null
   if (!ids?.includes(sourceId) || !ids.includes(targetId)) return
   const order = ids.filter(id => id !== sourceId)
   order.splice(order.indexOf(targetId) + (after ? 1 : 0), 0, sourceId)
@@ -626,18 +625,22 @@ async function commitPlanOrder(type: 'milestone' | 'feature', ids: string[]) {
 }
 async function commitTaskOrder(ids: string[], sourceId: string) {
   if (!project.value || !milestone.value || !feature.value) return
-  const tasks = plannedFeatureTasks.value
-  if (ids.length !== tasks.length || ids.every((id, index) => id === tasks[index].id)) return
-  const order = ids.map(id => { const item = tasks.find(t => t.id === id)!; return { id, expectedVersion: item.version } })
+  const visible = visibleTasks.value
+  if (ids.length !== visible.length || ids.every((id, index) => id === visible[index].id)) return
+  const tasks = [...linkedTasks.value].sort((a, b) => (a.planningPosition ?? a.position) - (b.planningPosition ?? b.position))
+  const visibleIds = new Set(visible.map(task => task.id))
+  let nextVisible = 0
+  const fullIds = tasks.map(task => visibleIds.has(task.id) ? ids[nextVisible++]! : task.id)
+  const order = fullIds.map(id => { const item = tasks.find(t => t.id === id)!; return { id, expectedVersion: item.version } })
   try {
-    await request(taskApi, '/order', { method: 'PUT', body: JSON.stringify({ location: 'planned', projectId: project.value.id, milestoneId: milestone.value.id, featureId: feature.value.id, items: order }) })
+    await request(taskApi, '/order', { method: 'PUT', body: JSON.stringify({ location: 'planned', planningDisplayOrder: true, projectId: project.value.id, milestoneId: milestone.value.id, featureId: feature.value.id, items: order }) })
     await refresh()
   } catch (error) {
     if (error instanceof LocalMutation) {
       const source = tasks.find(t => t.id === sourceId)!
-      const local = { ...source, position: ids.indexOf(source.id), version: source.version + 1 }
-      await queueTaskMutation(source, { operation: 'reorder', kind: 'task', id: source.id, placement: 'planned', planning: { projectId: project.value.id, milestoneId: milestone.value.id, featureId: feature.value.id }, order }, local)
-      state.tasks = state.tasks.map(x => { const pos = ids.indexOf(x.id); return pos < 0 ? x : { ...x, position: pos, version: x.version + 1 } })
+      const local = { ...source, planningPosition: fullIds.indexOf(source.id), version: source.version + 1 }
+      await queueTaskMutation(source, { operation: 'reorder', kind: 'task', id: source.id, placement: 'planningDisplay', planning: { projectId: project.value.id, milestoneId: milestone.value.id, featureId: feature.value.id }, order }, local)
+      state.tasks = state.tasks.map(x => { const pos = fullIds.indexOf(x.id); return pos < 0 ? x : { ...x, planningPosition: pos, version: x.version + 1 } })
       await cacheRows('tasks.task', state.tasks, true)
       state.error = ''; return
     }
@@ -802,7 +805,7 @@ onBeforeUnmount(() => {
             <template v-if="state.orderMode">
               <div v-for="item in visibleTasks" :key="'order-' + item.id" class="planning-feature-task planning-order-row" :data-order-id="item.id">
                 <span class="planning-feature-task-title">{{ item.title }}</span>
-                <ReorderHandle v-if="taskState(item) === 'planned'" class="planning-order-handle" :label="`Перетащить задачу ${item.title}`" @pointerdown="orderDragStart($event, item.id)" />
+                <ReorderHandle class="planning-order-handle" :label="`Перетащить задачу ${item.title}`" @pointerdown="orderDragStart($event, item.id)" />
               </div>
             </template>
             <template v-else>

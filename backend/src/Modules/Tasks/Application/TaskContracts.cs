@@ -3,7 +3,7 @@ using PersonalDashboard.V2.Contracts.Planning;
 
 namespace PersonalDashboard.V2.Tasks.Application;
 
-public sealed record TaskView(Guid Id, string Title, string Description, Guid? ProjectId, Guid? MilestoneId, Guid? FeatureId, TaskLocation Location, TaskWorkStatus WorkStatus, Guid? SectionId, int Position, long Version, string? ArchivedSectionName = null);
+public sealed record TaskView(Guid Id, string Title, string Description, Guid? ProjectId, Guid? MilestoneId, Guid? FeatureId, TaskLocation Location, TaskWorkStatus WorkStatus, Guid? SectionId, int Position, long Version, string? ArchivedSectionName = null, int PlanningPosition = 0);
 public sealed record TaskSectionView(Guid Id, string Name, TaskLocation Location, int Position, long Version);
 public sealed record TaskOrderItem(Guid Id, long ExpectedVersion);
 
@@ -84,12 +84,13 @@ public sealed class TasksService(ITasksRepository repository, PersonalDashboard.
         await repository.SaveAsync(item, ct); return Map(item);
     }
 
-    public async Task<IReadOnlyList<TaskView>> ReorderTasksAsync(TaskLocation location, Guid? sectionId, IReadOnlyList<TaskOrderItem> order, CancellationToken ct, Guid? projectId = null, Guid? milestoneId = null, Guid? featureId = null)
+    public async Task<IReadOnlyList<TaskView>> ReorderTasksAsync(TaskLocation location, Guid? sectionId, IReadOnlyList<TaskOrderItem> order, CancellationToken ct, Guid? projectId = null, Guid? milestoneId = null, Guid? featureId = null, bool planningDisplayOrder = false)
     {
         return await transaction.ExecuteAsync(async token =>
         {
             if (location is not (TaskLocation.Planned or TaskLocation.Backlog or TaskLocation.Today)) throw new ArgumentException("Only planned, Backlog or Today tasks can be reordered.");
-            IReadOnlyList<TaskItem> candidates = await repository.ListAsync(location, token);
+            if (planningDisplayOrder && location != TaskLocation.Planned) throw new ArgumentException("Planning display order requires planned scope.");
+            IReadOnlyList<TaskItem> candidates = await repository.ListAsync(planningDisplayOrder ? null : location, token);
             TaskItem[] current;
             if (location == TaskLocation.Planned)
             {
@@ -109,7 +110,10 @@ public sealed class TasksService(ITasksRepository repository, PersonalDashboard.
             if (order.Count != current.Length || order.Select(x => x.Id).Distinct().Count() != order.Count || !order.Select(x => x.Id).ToHashSet().SetEquals(current.Select(x => x.Id))) throw new ArgumentException("Order must include every current task in this scope exactly once.");
             foreach (var (entry, position) in order.Select((entry, position) => (entry, position)))
             {
-                var task = current.Single(x => x.Id == entry.Id); Check(task.Version, entry.ExpectedVersion); task.SetPosition(position); await repository.SaveAsync(task, token);
+                var task = current.Single(x => x.Id == entry.Id); Check(task.Version, entry.ExpectedVersion);
+                if (planningDisplayOrder) task.SetPlanningPosition(position);
+                else task.SetPosition(position);
+                await repository.SaveAsync(task, token);
             }
             return order.Select(entry => Map(current.Single(x => x.Id == entry.Id))).ToArray();
         }, ct);
@@ -190,7 +194,7 @@ public sealed class TasksService(ITasksRepository repository, PersonalDashboard.
     }
     private static void Check(long actual, long expected) { if (actual != expected) throw new TaskVersionConflictException(actual, expected); }
     private static void EnsureSectionLocation(TaskLocation location) { if (location is not (TaskLocation.Backlog or TaskLocation.Today)) throw new ArgumentException("Sections belong to Backlog or Today."); }
-    private static TaskView Map(TaskItem x) => new(x.Id, x.Title, x.Description, x.ProjectId, x.MilestoneId, x.FeatureId, x.Location, x.WorkStatus, x.SectionId, x.Position, x.Version, x.ArchivedSectionName);
+    private static TaskView Map(TaskItem x) => new(x.Id, x.Title, x.Description, x.ProjectId, x.MilestoneId, x.FeatureId, x.Location, x.WorkStatus, x.SectionId, x.Position, x.Version, x.ArchivedSectionName, x.PlanningPosition);
     private static TaskSectionView Map(TaskSection x) => new(x.Id, x.Name, x.Location, x.Position, x.Version);
 }
 

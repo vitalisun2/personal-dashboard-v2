@@ -1,7 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { HttpSyncTransport } from './httpSyncTransport.ts';
+import { orderViewChanges } from './orderConflicts.ts';
 import { syncPendingOperations, toSyncPushRequest } from './sync.ts';
+
+test('planning reorder changes only planning positions in cached tasks', () => {
+  const rows = [{ id: 'a', position: 4, planningPosition: 0, version: 2 }, { id: 'b', position: 1, planningPosition: 1, version: 3 }];
+  const conflict = { type: 'tasks.task', id: 'b', order: { source: { placement: 'planningDisplay' }, rows,
+    local: [{ id: 'b' }, { id: 'a' }], server: [{ id: 'a' }, { id: 'b' }], excluded: [] } };
+  const changed = orderViewChanges(conflict, 'local', [], []);
+  assert.deepEqual(changed.map(row => [row.id, row.payload.position, row.payload.planningPosition]),
+    [['b', 1, 0], ['a', 4, 1]]);
+});
 
 test('pull preserves every member of a pending reorder without mislabelling sibling conflicts', async () => {
   const operation = { operationId: 'reorder', type: 'knowledge.node', id: 'a', expectedVersion: 1, kind: 'upsert',
