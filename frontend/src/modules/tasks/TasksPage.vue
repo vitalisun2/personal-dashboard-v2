@@ -85,12 +85,7 @@ const confirmCancelEl = ref<HTMLButtonElement | null>(null)
 let swipe: SwipeState | null = null
 let drag: DragState | null = null
 let suppressOpenUntil = 0
-let toastTimer = 0
 let renameDone = false
-
-// ---------- toast ----------
-const toast = reactive({ text: '', show: false })
-function flash(message: string) { clearTimeout(toastTimer); toast.text = message; toast.show = true; toastTimer = window.setTimeout(() => { toast.show = false }, 1600) }
 
 // ---------- confirm dialog ----------
 const confirmBox = reactive({ open: false, title: '', body: '', confirmLabel: 'Подтвердить', onConfirm: null as (() => void) | null })
@@ -126,7 +121,7 @@ async function savePlanningLink(moveToPlanning: boolean) {
   const ids = { projectId: selectedProject.value.id, milestoneId: selectedMilestone.value.id, featureId: feature.id }
   try {
     const updated = await request<Task>(`/${task.id}/planning-link`, { method: 'PUT', body: JSON.stringify({ expectedVersion: task.version, ...ids, moveToPlanning }) })
-    state.detail = updated; state.tasks = state.tasks.map(x => x.id === updated.id ? updated : x); state.linkSheetOpen = false; await refresh(); flash(moveToPlanning ? 'Перенесено в планирование' : 'Фича назначена')
+    state.detail = updated; state.tasks = state.tasks.map(x => x.id === updated.id ? updated : x); state.linkSheetOpen = false; await refresh();
     if (moveToPlanning) await router.push(`/planning/projects/${ids.projectId}/milestones/${ids.milestoneId}/features/${ids.featureId}`)
   } catch (error) {
     if (!(error instanceof LocalMutation)) { state.error = (error as Error).message; return }
@@ -134,7 +129,7 @@ async function savePlanningLink(moveToPlanning: boolean) {
     const payload = { operation: 'update', kind: 'task', id: task.id, expectedVersion: task.version, ...(moveToPlanning ? { placement: 'planned' } : {}), workStatus: statusName(task.workStatus) === 'InProgress' ? 'inProgress' : statusName(task.workStatus).toLowerCase(), sectionId: null, planning: ids }
     await queueTask('tasks.task', task.id, task.version, payload, false, local)
     state.detail = local; state.tasks = state.tasks.map(x => x.id === local.id ? local : x); state.linkSheetOpen = false
-    state.error = 'Изменение сохранено на устройстве; синхронизация выполняется автоматически.'
+    state.error = ''
     if (moveToPlanning) { state.detail = null; await router.push(`/planning/projects/${ids.projectId}/milestones/${ids.milestoneId}/features/${ids.featureId}`) }
     else await refresh()
   }
@@ -147,7 +142,7 @@ function menuItemsFor(kind: 'task' | 'section' | 'project', id: string): MenuIte
     if (isToday(task)) items.push({ label: advanceLabel(task), action: () => { void advanceTask(task) } })
     items.push({
       label: isArchived(task) ? 'Вернуть в Backlog' : String(task.location).toLowerCase() === 'backlog' ? 'Перенести в Сегодня' : 'Вернуть в Backlog',
-      action: () => { if (isArchived(task)) { void mutate(task, 'restore').then(() => flash('Возвращено в Backlog')) } else void moveTaskVia(task, String(task.location).toLowerCase() === 'backlog' ? 'today' : 'backlog') },
+      action: () => { if (isArchived(task)) { void mutate(task, 'restore') } else void moveTaskVia(task, String(task.location).toLowerCase() === 'backlog' ? 'today' : 'backlog') },
     })
     if (String(task.location).toLowerCase() === 'backlog' && isLinked(task)) items.push({ label: 'Вернуть в план', action: () => { void mutate(task, 'planning') } })
     items.push({ label: 'Переименовать', action: () => startRename('task', task.id) })
@@ -293,23 +288,23 @@ function isExpanded(key: string) { return state.expanded[state.bucket].has(key) 
 function toggleOrderMode() { closeMenu(); swipe = null; clearGhost(); clearDragMarks(); drag = null; state.orderMode = !state.orderMode }
 async function moveTaskVia(task: Task, target: 'today' | 'backlog') {
   await mutate(task, target)
-  flash(target === 'today' ? 'Добавлено в Сегодня' : 'Возвращено в Backlog')
+
 }
 async function advanceTask(task: Task) {
   const s = statusName(task.workStatus)
   const next = s === 'Done' ? 'new' : s === 'InProgress' ? 'done' : 'inProgress'
   await mutate(task, 'status', 'PUT', { expectedVersion: task.version, status: next })
-  flash(`Статус: ${workLabel(next)}`)
+
 }
 function archiveTask(task: Task) {
-  askConfirm({ title: 'Убрать задачу в архив?', body: `«${task.title}» можно будет найти в архиве.`, confirmLabel: 'В архив', onConfirm: () => { void mutate(task, 'archive').then(() => flash('Задача перемещена в архив')) } })
+  askConfirm({ title: 'Убрать задачу в архив?', body: `«${task.title}» можно будет найти в архиве.`, confirmLabel: 'В архив', onConfirm: () => { void mutate(task, 'archive') } })
 }
 function deleteSectionFlow(section: Section, tasks: Task[]) {
   askConfirm({
     title: `Удалить раздел «${section.name}»?`,
     body: tasks.length ? `${tasks.length} задач будут перемещены в архив.` : 'Раздел будет удалён.',
     confirmLabel: 'Удалить',
-    onConfirm: () => { void (async () => { for (const task of tasks) await mutate(task, 'archive'); if (state.sections.some(item => item.id === section.id)) await deleteSection(section); flash('Раздел удалён') })() },
+    onConfirm: () => { void (async () => { for (const task of tasks) await mutate(task, 'archive'); if (state.sections.some(item => item.id === section.id)) await deleteSection(section); })() },
   })
 }
 function deleteProjectGroupFlow(projectId: string, tasks: Task[]) {
@@ -318,7 +313,7 @@ function deleteProjectGroupFlow(projectId: string, tasks: Task[]) {
     title: `Удалить раздел «${title}»?`,
     body: tasks.length ? `${tasks.length} задач будут перемещены в архив.` : 'Раздел будет удалён.',
     confirmLabel: 'Удалить',
-    onConfirm: () => { void (async () => { for (const task of tasks) await mutate(task, 'archive'); flash('Раздел удалён') })() },
+    onConfirm: () => { void (async () => { for (const task of tasks) await mutate(task, 'archive'); })() },
   })
 }
 
@@ -350,7 +345,7 @@ async function renameTask(task: Task, title: string) {
       state.tasks = state.tasks.map(x => x.id === task.id ? local : x)
       if (state.detail?.id === task.id) state.detail = local
       await cacheRows('tasks.task', state.tasks, true)
-      state.error = 'Изменение сохранено на устройстве; синхронизация выполняется автоматически.'; return
+      state.error = ''; return
     }
     state.error = (error as Error).message
   }
@@ -362,7 +357,7 @@ async function renameSection(section: Section, name: string) {
     if (error instanceof LocalMutation) {
       const local = { ...section, name, version: section.version + 1 }
       await queueTask('tasks.section', section.id, section.version, { operation: 'update', kind: 'section', id: section.id, expectedVersion: section.version, title: name, bucket: section.location }, false, local)
-      state.sections = state.sections.map(x => x.id === section.id ? local : x); state.error = 'Изменение сохранено на устройстве; синхронизация выполняется автоматически.'; return
+      state.sections = state.sections.map(x => x.id === section.id ? local : x); state.error = ''; return
     }
     state.error = (error as Error).message
   }
@@ -372,7 +367,7 @@ async function deleteSection(section: Section) {
   catch (error) {
     if (error instanceof LocalMutation) {
       await queueTask('tasks.section', section.id, section.version, { operation: 'delete', kind: 'section', id: section.id, bucket: section.location }, true)
-      state.sections = state.sections.filter(x => x.id !== section.id); await cacheRows('tasks.section', state.sections, true); state.error = 'Удаление сохранено на устройстве; синхронизация выполняется автоматически.'; return
+      state.sections = state.sections.filter(x => x.id !== section.id); await cacheRows('tasks.section', state.sections, true); state.error = ''; return
     }
     state.error = (error as Error).message
   }
@@ -392,7 +387,7 @@ async function submitCreate() {
   try {
     if (state.createType === 'section') {
       const created = await createSection()
-      if (created) { closeCreateSheet(); flash('Раздел создан') }
+      if (created) { closeCreateSheet(); }
       return
     }
     const created = await createTask()
@@ -411,7 +406,7 @@ async function createTask(): Promise<Task | null> {
     await queueTask('tasks.task', id, null, payload, false, local)
     created = { id, title: state.title.trim(), description: state.description, location: 'backlog', workStatus: 'new', sectionId: sectionId || undefined, position: state.tasks.length, version: 1 }
     queuedOffline = true
-    state.tasks.push(created); await cacheRows('tasks.task', state.tasks, true); state.error = 'Задача сохранена на устройстве; синхронизация выполняется автоматически.'
+    state.tasks.push(created); await cacheRows('tasks.task', state.tasks, true); state.error = ''
   }
   if (state.bucket === 'Сегодня') {
     if (queuedOffline) {
@@ -426,7 +421,7 @@ async function createTask(): Promise<Task | null> {
         if (error instanceof LocalMutation) {
           const todayTask = { ...created, location: 'today', version: created.version + 1 }
           await queueTask('tasks.task', created.id, created.version, { operation: 'move', kind: 'task', id: created.id, expectedVersion: created.version, placement: 'today', workStatus: 'new', sectionId: null }, false, todayTask)
-          state.tasks = state.tasks.map(x => x.id === created.id ? todayTask : x); state.error = 'Создание сохранено, перенос на Сегодня будет синхронизирован позже.'
+          state.tasks = state.tasks.map(x => x.id === created.id ? todayTask : x); state.error = ''
         } else moveError = (error as Error).message
       }
     }
@@ -448,7 +443,7 @@ async function createSection(): Promise<Section | null> {
     const local: Section = { id, name: state.title.trim(), location: bucket, position: state.sections.length, version: 1 }
     await queueTask('tasks.section', id, null, payload, false, local)
     created = { id, name: state.title.trim(), location: bucket, position: state.sections.length, version: 1 }
-    queuedOffline = true; state.sections.push(created); await cacheRows('tasks.section', state.sections, true); state.error = 'Раздел сохранён на устройстве; синхронизация выполняется автоматически.'
+    queuedOffline = true; state.sections.push(created); await cacheRows('tasks.section', state.sections, true); state.error = ''
   }
   state.title = ''; state.creating = false; if (!queuedOffline) await refresh(); state.sectionId = created.id
   state.expanded[state.bucket].add(`section:${created.id}`)
@@ -486,7 +481,7 @@ function finishDescEdit(save = true) {
 }
 function detailMove() {
   const task = state.detail; if (!task) return
-  if (isArchived(task)) void mutate(task, 'restore').then(() => flash('Возвращено в Backlog'))
+  if (isArchived(task)) void mutate(task, 'restore')
   else void moveTaskVia(task, isToday(task) || String(task.location).toLowerCase() === 'planned' ? 'backlog' : 'today')
 }
 function deleteArchivedTask(task: Task) {
@@ -501,7 +496,7 @@ async function removeArchivedTask(task: Task) {
     if (!(error instanceof LocalMutation)) { state.error = (error as Error).message; return }
     try {
       await queueTask('tasks.task', task.id, task.version, { operation: 'delete', kind: 'task', id: task.id }, true)
-      state.error = 'Удаление сохранено на устройстве; синхронизация выполняется автоматически.'
+      state.error = ''
     } catch (saveError) { state.error = (saveError as Error).message; return }
   }
   state.tasks = state.tasks.filter(item => item.id !== task.id)
@@ -509,7 +504,7 @@ async function removeArchivedTask(task: Task) {
     state.detail = null; state.archive = true
     await router.replace('/tasks')
   }
-  flash('Задача удалена')
+
 }
 
 // ---------- drag & reorder (pointer-based, order mode) ----------
@@ -698,7 +693,7 @@ async function mutate(task: Task, suffix: string, method = 'POST', body: object 
       }
       if (state.detail?.id === task.id) state.detail = local
       await cacheRows('tasks.task', state.tasks, true)
-      state.error = 'Изменение сохранено на устройстве; синхронизация выполняется автоматически.'; return
+      state.error = ''; return
     }
     state.error = (error as Error).message; await refresh()
   }
@@ -711,7 +706,7 @@ async function saveDetail() {
     const task = state.detail, payload = { operation: 'update', kind: 'task', id: task.id, expectedVersion: task.version, title: state.title, description: state.description }
     state.detail = { ...task, title: state.title, description: state.description, version: task.version + 1 }
     await queueTask('tasks.task', task.id, task.version, payload, false, state.detail); state.tasks = state.tasks.map(x => x.id === task.id ? state.detail! : x); await cacheRows('tasks.task', state.tasks, true)
-    state.error = 'Изменение сохранено на устройстве; синхронизация выполняется автоматически.'
+    state.error = ''
   }
 }
 async function moveTaskSection(task: Task, sectionId: string) { await mutate(task, 'section', 'PUT', { expectedVersion: task.version, sectionId }) }
@@ -727,7 +722,7 @@ async function reorderProjectTasks(projectId: string, sourceId: string, targetId
       const source = items.find(x => x.id === sourceId)!
       await queueTask('tasks.task', source.id, source.version, { operation: 'reorder', kind: 'task', id: source.id, bucket: location.value.toLowerCase(), planning: { projectId }, order }, false, { ...source, position: items.findIndex(x => x.id === source.id), version: source.version + 1 })
       state.tasks = state.tasks.map(x => { const index = items.findIndex(i => i.id === x.id); return index < 0 ? x : { ...x, position: index, version: x.version + 1 } }); await cacheRows('tasks.task', state.tasks, true)
-      state.error = 'Порядок сохранён на устройстве; синхронизация выполняется автоматически.'; return
+      state.error = ''; return
     }
     state.error = (error as Error).message
   }
@@ -743,7 +738,7 @@ async function dropTaskBefore(sectionId: string, sourceId: string, targetId: str
       const changed = items.find(x => x.id === sourceId)!
       await queueTask('tasks.task', changed.id, changed.version, { operation: 'reorder', kind: 'task', id: changed.id, bucket: location.value.toLowerCase(), sectionId, order: items.map(x => ({ id: x.id, expectedVersion: x.version })) }, false, { ...changed, position: items.findIndex(x => x.id === changed.id), version: changed.version + 1 })
       state.tasks = state.tasks.map(x => { const index = items.findIndex(i => i.id === x.id); return index < 0 ? x : { ...x, position: index, version: x.version + 1 } }); await cacheRows('tasks.task', state.tasks, true)
-      state.error = 'Порядок сохранён на устройстве; синхронизация выполняется автоматически.'; return
+      state.error = ''; return
     }
     state.error = (error as Error).message
   }
@@ -764,7 +759,7 @@ async function dropGroup(sourceKey: string, targetKey: string, after = false) {
   }
   if (!navigator.onLine || await hasPendingGroupOrder(location.value)) {
     await saveQueued()
-    if (!navigator.onLine) state.error = 'Порядок сохранён на устройстве; синхронизация выполняется автоматически.'
+    if (!navigator.onLine) state.error = ''
     return
   }
   try {
@@ -773,7 +768,7 @@ async function dropGroup(sourceKey: string, targetKey: string, after = false) {
     await readGroupOrder(location.value, order)
     localStorage.setItem(`tasks.groupOrder.${location.value}`, JSON.stringify(order))
   } catch (error) {
-    if (error instanceof LocalMutation) { await saveQueued(); state.error = 'Порядок сохранён на устройстве; синхронизация выполняется автоматически.' }
+    if (error instanceof LocalMutation) { await saveQueued(); state.error = '' }
     else { state.error = (error as Error).message; await refresh() }
   }
 }
@@ -789,7 +784,6 @@ onBeforeUnmount(() => {
   window.removeEventListener('offline-data-updated', onOfflineDataUpdated)
   document.removeEventListener('pointerdown', onDocPointerDown, true)
   document.removeEventListener('keydown', onDocKeyDown)
-  clearTimeout(toastTimer)
   if (swipe?.timer) window.clearTimeout(swipe.timer)
   clearGhost(); drag = null
 })
@@ -967,6 +961,5 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="task-toast" :class="{ show: toast.show }" role="status" aria-live="polite">{{ toast.text }}</div>
   </section>
 </template>

@@ -91,6 +91,10 @@ async function eventually(check, message) {
   }
   assert.fail(message);
 }
+const assertWaiting = async () => {
+  await eventually(async () => (await page.locator('.sync-status').textContent()).trim() === 'Сохранено локально, ожидает синхронизации', 'Queued changes must show neutral waiting status');
+  assert.equal(await page.locator('.task-error, .planning-error, .task-toast, .knowledge-toast').count(), 0);
+};
 const goto = path => page.goto(base + path, { waitUntil: 'domcontentloaded' });
 try {
   // Opening Knowledge must prepare the other modules even if never visited online.
@@ -112,6 +116,7 @@ try {
   await page.locator('.task-title-detail-input').fill('Task edited without Tailscale');
   await page.locator('.task-title-detail-input').press('Enter');
   await eventually(async () => (await stored('operations')).some(operation => operation.id === 'offline-backlog'), 'Task edit must persist in the queue');
+  await assertWaiting();
 
   await goto('/planning/projects/offline-project');
   await page.getByText('Offline epic', { exact: true }).waitFor();
@@ -120,6 +125,7 @@ try {
   await page.locator('#planning-name').fill('Project edited offline');
   await page.getByRole('button', { name: 'Сохранить', exact: true }).click();
   await eventually(async () => (await stored('operations')).some(operation => operation.id === project.id), 'Project edit must persist in the queue');
+  await assertWaiting();
   const pending = await stored('operations');
 
   // Actual network loss and a full reload exercises the cached application shell as well as data.
@@ -137,7 +143,8 @@ try {
   mode = 'online';
   await context.setOffline(false);
   await eventually(async () => skippedPush, 'Reconnection must attempt the queued edits');
-  await page.locator('.sync-status[data-status="ready"]').waitFor({ state: 'attached' });
+  await page.locator('.sync-status[data-status="pending"]').waitFor({ state: 'attached' });
+  await assertWaiting();
   // A successful sync round with deferred operations still receives old server snapshots.
   // Those snapshots must not roll back durable edits awaiting a later push.
   assert.deepEqual((await stored('operations')).map(item => item.operationId).sort(), pending.map(item => item.operationId).sort());
@@ -152,6 +159,8 @@ try {
   assert.equal(tasks[0].title, 'Task edited without Tailscale');
   assert.equal(project.title, 'Project edited offline');
   await eventually(async () => (await stored('entities')).some(entity => entity.type === 'planning.project.view' && entity.id === project.id && entity.version === project.version), 'Successful sync must refresh the cached view');
+  await page.locator('.sync-status[data-status="ready"]').waitFor({ state: 'attached' });
+  assert.equal((await page.locator('.sync-status').textContent()).trim(), 'Синхронизировано');
   mode = 'unavailable';
   await context.setOffline(true);
   await goto('/tasks/offline-backlog');

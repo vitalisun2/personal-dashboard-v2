@@ -16,7 +16,6 @@
 .knowledge-conflict-actions button { padding: 7px 11px; border: 1px solid var(--warning-line); border-radius: 8px; background: var(--warning-surface); color: var(--warning); }
 .knowledge-conflict-actions button.danger { border-color: var(--danger-line); background: var(--danger-surface); color: var(--danger); }
 
-.knowledge-toast { position: fixed; z-index: 30; left: 50%; bottom: 86px; width: min(340px, calc(100% - 32px)); transform: translateX(-50%); margin: 0; padding: 11px 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--text); box-shadow: 0 8px 24px #0008; font-size: 12px; text-align: center; }
 
 .knowledge-local-note { margin: 0 2px 10px; color: var(--muted); font-size: 11px; }
 

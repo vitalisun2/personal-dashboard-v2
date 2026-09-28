@@ -4,7 +4,7 @@ import { HttpSyncTransport } from './httpSyncTransport'
 import { syncPendingOperations } from './sync'
 import type { OfflineEntity, SyncOperation } from './types'
 
-export type SyncStatus = 'ready' | 'syncing' | 'offline' | 'conflict' | 'error'
+export type SyncStatus = 'ready' | 'syncing' | 'pending' | 'offline' | 'conflict' | 'error'
 
 let storePromise: Promise<IndexedDbOfflineStore> | undefined
 let running: Promise<void> | undefined
@@ -34,6 +34,7 @@ function setStatus(next: SyncStatus): void {
 export async function saveOfflineMutation(entity: OfflineEntity, operation: SyncOperation): Promise<void> {
   const store = await getOfflineStore()
   await store.saveEntityAndQueue(entity, operation)
+  setStatus('pending')
   window.setTimeout(requestSync, 0)
 }
 
@@ -77,7 +78,7 @@ async function runSync(): Promise<void> {
     const store = await getOfflineStore()
     await syncPendingOperations(store, new HttpSyncTransport())
     if (await refreshOfflineSnapshots(store)) window.dispatchEvent(new Event('offline-data-updated'))
-    setStatus((await store.listConflicts()).length ? 'conflict' : 'ready')
+    setStatus((await store.listConflicts()).length ? 'conflict' : (await store.listPendingOperations()).length ? 'pending' : 'ready')
   } catch {
     // Keep the IndexedDB queue intact. A later online/visibility/timer event retries.
     setStatus('error')

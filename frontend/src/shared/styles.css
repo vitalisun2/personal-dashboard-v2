@@ -379,8 +379,6 @@ button { border: 0; background: transparent; cursor: pointer; }
 .phone-shell .task-link-footer.single .task-link-submit{flex:1}
 .phone-shell .task-create-sheet .task-create-description{width:100%;min-height:88px;resize:none;margin-top:8px;padding:11px 12px;border:0;border-radius:11px;outline:none;background:var(--surface);color:var(--text);font-size:14px;line-height:1.45}
 .phone-shell .task-create-sheet .task-create-description::placeholder{color:var(--muted)}
-.phone-shell .tasks-section .task-toast{position:absolute;z-index:90;left:50%;bottom:90px;max-width:330px;padding:9px 12px;border:1px solid var(--line-strong);border-radius:11px;background:var(--surface-2);box-shadow:0 10px 28px rgba(0,0,0,.25);color:var(--text);font-size:12px;opacity:0;pointer-events:none;text-align:center;transform:translate(-50%,12px);transition:opacity .16s ease,transform .16s ease}
-.phone-shell .tasks-section .task-toast.show{opacity:1;transform:translate(-50%,0)}
 
 /* Shared reorder mode and the Planning drag preview across all lists. */
 .phone-shell .order-mode-toggle{width:var(--toolbar-control-size);height:var(--toolbar-control-size);flex:none;display:grid;place-items:center;border:1px solid var(--line);border-radius:var(--toolbar-control-radius);background:var(--surface);color:var(--text-secondary);transition:background .16s ease,border-color .16s ease,box-shadow .16s ease,color .16s ease}

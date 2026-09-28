@@ -25,9 +25,10 @@ const chatArea = computed(() => {
 })
 const hideBottomNav = computed(() => currentSection.value === 'chat')
 const syncStatus = ref<SyncStatus>('syncing')
+const waitingForSync = 'Сохранено локально, ожидает синхронизации'
 const syncLabels: Record<SyncStatus, string> = {
-  ready: 'Данные доступны офлайн', syncing: 'Синхронизация…', offline: 'Работа без сети',
-  conflict: 'Конфликт изменений — правки сохранены', error: 'Синхронизация отложена',
+  ready: 'Синхронизировано', syncing: 'Проверяем синхронизацию…', pending: waitingForSync,
+  offline: waitingForSync, conflict: waitingForSync, error: waitingForSync,
 }
 let unsubscribeSyncStatus: (() => void) | undefined
 const appFrame = ref<HTMLElement | null>(null)
@@ -80,7 +81,10 @@ function syncVisibleViewport() {
 }
 
 onMounted(() => {
-  unsubscribeSyncStatus = subscribeSyncStatus(next => { syncStatus.value = next })
+  unsubscribeSyncStatus = subscribeSyncStatus(next => {
+    // A background check should not flash a new message; keep the last save state.
+    if (next !== 'syncing') syncStatus.value = next
+  })
   document.documentElement.classList.add('keyboard-viewport-lock')
   viewport = window.visualViewport ?? null
   syncVisibleViewport()

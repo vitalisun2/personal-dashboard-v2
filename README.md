@@ -22,7 +22,7 @@ The Vue shell discovers `frontend/src/modules/<section>/index.ts` files. Each fi
 
 ## Offline protocol
 
-Open the application once with a working server connection on each device and wait for `Данные доступны офлайн`. The service worker caches the application shell; startup sync downloads all task buckets, task sections and the full planning hierarchy even when those pages have not been visited. Use the same HTTPS address (or localhost for development); service workers cannot provide offline reload on an ordinary HTTP LAN address.
+Open the application once with a working server connection on each device and wait for `Синхронизировано`. The service worker caches the application shell; startup sync downloads all task buckets, task sections and the full planning hierarchy even when those pages have not been visited. Use the same HTTPS address (or localhost for development); service workers cannot provide offline reload on an ordinary HTTP LAN address.
 
 Tasks and planning read IndexedDB immediately and save manual edits locally before attempting network synchronization. Background sync runs on reconnect, foregrounding, and every 30 seconds while visible. An unavailable Tailscale route does not block reading or editing. Complete view snapshots replace the previous view atomically only when the pending queue is empty. Until queued edits/conflicts are resolved, local views take priority. Browser storage is device/origin-specific; clearing site data removes downloaded data and unsynced edits.
 

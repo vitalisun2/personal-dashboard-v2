@@ -211,7 +211,7 @@ async function setFeatureStatus(status: 'done' | 'active') {
         m.features = m.features.map(item => item.id === f.id ? local : item)
         m.version += 1; p.version += 1
         await cacheRows('planning.project', state.projects, true)
-        state.error = 'Статус сохранён на устройстве; синхронизация выполняется автоматически.'
+        state.error = ''
       } catch (saveError) { state.error = (saveError as Error).message }
     } else state.error = (error as Error).message
   } finally { state.savingFeatureStatus = false }
@@ -276,7 +276,7 @@ async function save() {
       if (createdProjectId) await router.replace(`/planning/projects/${createdProjectId}`)
       else if (createdMilestoneId && project.value) await router.push(`/planning/projects/${project.value.id}/milestones/${createdMilestoneId}`)
       else if (createdFeatureId && project.value && milestone.value) await router.push(`/planning/projects/${project.value.id}/milestones/${milestone.value.id}/features/${createdFeatureId}`)
-      state.error = 'Изменение сохранено на устройстве; синхронизация выполняется автоматически.'
+      state.error = ''
       return
     }
     state.error = (error as Error).message
@@ -292,7 +292,7 @@ async function updateTask(task: Task, patch: { title?: string; description?: str
       await queueTaskMutation(task, { operation: 'update', kind: 'task', id: task.id, expectedVersion: task.version, ...patch }, local)
       state.tasks = state.tasks.map(x => x.id === task.id ? local : x)
       await cacheRows('tasks.task', state.tasks, true)
-      state.error = 'Изменение сохранено на устройстве; синхронизация выполняется автоматически.'
+      state.error = ''
       return
     }
     state.error = (error as Error).message
@@ -308,7 +308,7 @@ async function addTask() {
       if (!project.value || !milestone.value || !feature.value) { state.error = (error as Error).message; return }
       const id = offlineId(), payload = { operation: 'create', kind: 'task', id, title: state.title.trim(), description: state.description, planning: { projectId: project.value.id, milestoneId: milestone.value.id, featureId: feature.value.id }, placement: 'planned', workStatus: 'new', sectionId: null }
       const local: Task = { id, title: state.title.trim(), description: state.description, projectId: project.value.id, milestoneId: milestone.value.id, featureId: feature.value.id, location: 'planned', workStatus: 'new', position: linkedTasks.value.length, version: 1 }
-      await queueTaskCreate(id, payload, local); state.tasks.push(local); state.title = ''; state.description = ''; state.createType = ''; await cacheRows('tasks.task', state.tasks, true); state.error = 'Задача сохранена на устройстве; синхронизация выполняется автоматически.'; return
+      await queueTaskCreate(id, payload, local); state.tasks.push(local); state.title = ''; state.description = ''; state.createType = ''; await cacheRows('tasks.task', state.tasks, true); state.error = ''; return
     }
     state.error = (error as Error).message
   }
@@ -322,7 +322,7 @@ async function moveTask(task: Task, suffix: string) {
       await queueTaskMutation(task, { operation: 'move', kind: 'task', id: task.id, expectedVersion: task.version, placement, workStatus: 'new', sectionId: null }, local)
       state.tasks = state.tasks.map(x => x.id === task.id ? local : x)
       await cacheRows('tasks.task', state.tasks, true)
-      state.error = 'Перенос сохранён на устройстве; синхронизация выполняется автоматически.'; return
+      state.error = ''; return
     }
     state.error = (error as Error).message
   }
@@ -364,7 +364,7 @@ async function remove(type: string, item: Project | Milestone | Feature) {
       if (type === 'project') await router.replace('/planning')
       else if (type === 'milestone') await router.replace(`/planning/projects/${parentProjectId}`)
       else await router.replace(`/planning/projects/${parentProjectId}/milestones/${parentMilestoneId}`)
-      state.error = 'Удаление поставлено в очередь.'; return
+      state.error = ''; return
     }
     state.error = (error as Error).message
   }
@@ -381,7 +381,7 @@ async function performDeleteTask(task: Task) {
       const payload = { operation: 'delete', kind: 'task', id: task.id, expectedVersion }
       await saveOfflineMutation({ type: 'tasks.task', id: task.id, version: expectedVersion! + 1, payload: task, deleted: true, updatedAt: now }, { operationId: offlineId(), type: 'tasks.task', id: task.id, expectedVersion, kind: 'delete', payload, createdAt: now })
       await store.putEntity({ type: 'tasks.task.view', id: task.id, version: expectedVersion! + 1, payload: null, deleted: true, updatedAt: now })
-      state.tasks = state.tasks.filter(x => x.id !== task.id); if (state.detailTaskId === task.id) state.detailTaskId = ''; await cacheRows('tasks.task', state.tasks, true); state.error = 'Удаление сохранено на устройстве; синхронизация выполняется автоматически.'; return
+      state.tasks = state.tasks.filter(x => x.id !== task.id); if (state.detailTaskId === task.id) state.detailTaskId = ''; await cacheRows('tasks.task', state.tasks, true); state.error = ''; return
     }
     state.error = (error as Error).message
   }
@@ -616,7 +616,7 @@ async function commitPlanOrder(type: 'milestone' | 'feature', ids: string[]) {
         project.value.version += 1
       }
       await cacheRows('planning.project', state.projects, true)
-      state.error = 'Порядок сохранён на устройстве; синхронизация выполняется автоматически.'; return
+      state.error = ''; return
     }
     state.error = (error as Error).message
   }
@@ -637,7 +637,7 @@ async function commitTaskOrder(ids: string[]) {
       await queueTaskMutation(source, { operation: 'reorder', kind: 'task', id: source.id, placement: 'planned', planning: { projectId: project.value.id, milestoneId: milestone.value.id, featureId: feature.value.id }, order }, local)
       state.tasks = state.tasks.map(x => { const pos = ids.indexOf(x.id); return pos < 0 ? x : { ...x, position: pos, version: x.version + 1 } })
       await cacheRows('tasks.task', state.tasks, true)
-      state.error = 'Порядок сохранён на устройстве; синхронизация выполняется автоматически.'; return
+      state.error = ''; return
     }
     state.error = (error as Error).message
   }
