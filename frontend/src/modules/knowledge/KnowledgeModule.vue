@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { subscribeSyncStatus, type SyncStatus } from '../../offline/runtime'
 import SearchHighlight from '../../shared/SearchHighlight.vue'
 import TextRangeHighlight from '../../shared/TextRangeHighlight.vue'
+import { readViewState, writeViewState } from '../../shared/uiViewState'
 import { search as searchIndexed, type SearchHit } from '../search/searchApi'
 import {
   getCachedKnowledge, getLocallyDeletedKnowledgeIds, queueKnowledgeDelete,
@@ -14,16 +15,18 @@ import './knowledge.css'
 
 const route = useRoute()
 const router = useRouter()
+const savedExpanded = readViewState<string[]>('knowledge.expanded', [])
 const nodes = ref<KnowledgeNode[]>([])
 const results = ref<KnowledgeSearchResult[]>([])
 const indexedHits = ref<SearchHit[]>([])
-const expanded = ref(new Set<string>())
+const expanded = ref(new Set<string>(Array.isArray(savedExpanded) ? savedExpanded.filter((id): id is string => typeof id === 'string') : []))
 const query = ref(String(route.query.q || ''))
 const exactSearchLoading = ref(false)
 const semanticSearchLoading = ref(false)
 const semanticSearchError = ref('')
 const locallyDeletedIds = ref(new Set<string>())
 const orderMode = ref(false)
+watch(expanded, value => writeViewState('knowledge.expanded', [...value]), { deep: true })
 const busy = ref(false)
 const error = ref('')
 const menuId = ref('')
@@ -169,6 +172,15 @@ watch([documentId, () => route.path.split('/')[1]], ([id, section], [previousId,
   titleEditing.value = false
   markdownEditing.value = false
 })
+watch(() => route.path.split('/')[1], (section, previousSection) => {
+  if (previousSection !== 'knowledge' || section === 'knowledge') return
+  titleEditing.value = false
+  markdownEditing.value = false
+  orderMode.value = false
+  createOpen.value = false
+  renameId.value = ''
+  menuId.value = ''
+}, { flush: 'sync' })
 watch(createOpen, open => {
   if (!open) parentListOpen.value = false
   else void nextTick(() => nameField.value?.focus({ preventScroll: true }))

@@ -4,6 +4,7 @@ import { RouterLink, RouterView, useRoute } from 'vue-router'
 import { requestSync, subscribeSyncStatus, type SyncStatus } from '../offline/runtime'
 import AppearanceSettings from './AppearanceSettings.vue'
 import ConflictResolver from '../offline/ConflictResolver.vue'
+import { readViewState, writeViewState } from '../shared/uiViewState'
 
 const route = useRoute()
 const navigation = [
@@ -13,13 +14,24 @@ const navigation = [
   { path: '/testing', label: 'Тестирование', icon: '◈' },
 ]
 const currentSection = computed(() => String(route.path.split('/')[1] || 'knowledge'))
-const lastRouteBySection = reactive(new Map<string, string>([[currentSection.value, route.fullPath]]))
+const savedRoutes = readViewState<Record<string, string>>('routes', {})
+const lastRouteBySection = reactive(new Map<string, string>(
+  Object.entries(savedRoutes).filter(([section, path]) =>
+    ['knowledge', 'planning', 'tasks', 'chat', 'search', 'testing'].includes(section)
+    && typeof path === 'string' && (path === `/${section}` || path.startsWith(`/${section}/`) || path.startsWith(`/${section}?`))),
+))
+if (route.path !== '/') lastRouteBySection.set(currentSection.value, route.fullPath)
+function saveNavigation(path: string) {
+  writeViewState('activeRoute', path)
+  writeViewState('routes', Object.fromEntries(lastRouteBySection))
+}
 watch(() => route.fullPath, (nextPath, previousPath) => {
   const nextSection = nextPath.split('/')[1] || 'knowledge'
   const previousSection = previousPath.split('/')[1] || 'knowledge'
-  lastRouteBySection.set(previousSection, previousPath)
+  if (previousPath !== '/') lastRouteBySection.set(previousSection, previousPath)
   lastRouteBySection.set(nextSection, nextPath)
-  if (nextSection !== previousSection && ['knowledge', 'planning', 'tasks'].includes(nextSection)) requestSync()
+  saveNavigation(nextPath)
+  if (previousPath !== '/' && nextSection !== previousSection && ['knowledge', 'planning', 'tasks'].includes(nextSection)) requestSync()
 }, { flush: 'sync' })
 function destinationForSection(section: string) { return lastRouteBySection.get(section) || `/${section}` }
 function destinationForChat() {
@@ -93,6 +105,7 @@ function syncVisibleViewport() {
 }
 
 onMounted(() => {
+  if (route.path !== '/') saveNavigation(route.fullPath)
   unsubscribeSyncStatus = subscribeSyncStatus(next => {
     // A background check should not flash a new message; keep the last save state.
     if (next !== 'syncing') syncStatus.value = next

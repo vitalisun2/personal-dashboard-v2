@@ -5,6 +5,7 @@ import { getOfflineStore, saveOfflineMutation } from '../../offline/runtime'
 import type { OfflineEntity, SyncOperation } from '../../offline/types'
 import { startReorderDrag } from '../../shared/reorderDrag'
 import ReorderHandle from '../../shared/ReorderHandle.vue'
+import { readViewState, writeViewState } from '../../shared/uiViewState'
 import { hasPendingGroupOrder, queueGroupOrder, readGroupOrder, type GroupOrderView } from './groupOrderOffline'
 
 type Task = { id: string; title: string; description: string; projectId?: string; milestoneId?: string; featureId?: string; location: string; workStatus: string; sectionId?: string; archivedSectionName?: string; position: number; version: number }
@@ -18,9 +19,14 @@ type SwipeState = { key: string; pointerId: number; startX: number; startY: numb
 type DragState = { kind: 'task' | 'section'; id: string; pointerId: number; row: HTMLElement; target: HTMLElement | null; place: 'before' | 'after' | 'inside' | ''; started: boolean; lifecycle: ReturnType<typeof startReorderDrag> }
 
 const route = useRoute(), router = useRouter()
+const savedView = readViewState<{ bucket: string; filter: string; archive: boolean; expanded: { Backlog: string[]; Сегодня: string[] } }>('tasks', { bucket: 'Backlog', filter: 'all', archive: false, expanded: { Backlog: [], Сегодня: [] } })
+const savedExpanded = savedView.expanded || { Backlog: [], Сегодня: [] }
 const state = reactive({
-  bucket: 'Backlog' as 'Backlog' | 'Сегодня', filter: 'all', archive: false, orderMode: false,
-  expanded: { Backlog: new Set<string>(), Сегодня: new Set<string>() },
+  bucket: (savedView.bucket === 'Сегодня' ? 'Сегодня' : 'Backlog') as 'Backlog' | 'Сегодня', filter: typeof savedView.filter === 'string' ? savedView.filter : 'all', archive: savedView.archive === true, orderMode: false,
+  expanded: {
+    Backlog: new Set<string>(Array.isArray(savedExpanded.Backlog) ? savedExpanded.Backlog.filter((key): key is string => typeof key === 'string') : []),
+    Сегодня: new Set<string>(Array.isArray(savedExpanded['Сегодня']) ? savedExpanded['Сегодня'].filter((key): key is string => typeof key === 'string') : []),
+  },
   tasks: [] as Task[], sections: [] as Section[], projects: [] as ProjectLabel[],
   groupOrder: { version: 0, keys: [] } as GroupOrderView,
   detail: null as Task | null, busy: false, error: '',
@@ -30,6 +36,16 @@ const state = reactive({
   detailEditing: '' as '' | 'title' | 'description',
   linkSheetOpen: false, linkProjectId: '', linkMilestoneId: '', linkFeatureId: '',
 })
+watch(() => ({ bucket: state.bucket, filter: state.filter, archive: state.archive, expanded: { Backlog: [...state.expanded.Backlog], Сегодня: [...state.expanded['Сегодня']] } }), value => writeViewState('tasks', value), { deep: true })
+watch(() => route.path.split('/')[1], (section, previousSection) => {
+  if (previousSection !== 'tasks' || section === 'tasks') return
+  state.detailEditing = ''
+  state.creating = false
+  state.renaming = null
+  state.linkSheetOpen = false
+  state.orderMode = false
+  closeMenu()
+}, { flush: 'sync' })
 const location = computed(() => state.archive ? 'Archived' : state.bucket === 'Сегодня' ? 'Today' : 'Backlog')
 const filtered = computed(() => state.tasks.filter(task => !state.detail || task.id === state.detail.id).filter(task => state.filter === 'all' || statusName(task.workStatus) === state.filter))
 const archiveTasks = computed(() => state.tasks.filter(task => state.filter === 'all' || (state.filter === 'Done' ? statusName(task.workStatus) === 'Done' : statusName(task.workStatus) !== 'Done')))

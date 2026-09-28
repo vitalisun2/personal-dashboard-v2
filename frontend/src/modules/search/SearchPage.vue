@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import SearchHighlight from '../../shared/SearchHighlight.vue'
+import { readViewState, writeViewState } from '../../shared/uiViewState'
 import { getLocallyDeletedKnowledgeIds, searchKnowledge, type KnowledgeSearchResult } from '../knowledge/knowledgeApi'
 import { search as searchIndexed, type SearchHit } from './searchApi'
 
@@ -8,7 +9,8 @@ const props = defineProps<{
   initialQuery?: string
 }>()
 
-const query = ref(props.initialQuery ?? '')
+const savedQuery = readViewState('search.query', '')
+const query = ref(props.initialQuery ?? (typeof savedQuery === 'string' ? savedQuery : ''))
 const exactResults = ref<KnowledgeSearchResult[]>([])
 const indexedHits = ref<SearchHit[]>([])
 const exactLoading = ref(false)
@@ -65,7 +67,7 @@ function scheduleSearch() {
 }
 
 watch(() => props.initialQuery, value => { if (value !== undefined) query.value = value })
-watch(query, scheduleSearch, { immediate: true })
+watch(query, value => { writeViewState('search.query', value); scheduleSearch() }, { immediate: true })
 onBeforeUnmount(() => {
   if (searchTimer) clearTimeout(searchTimer)
   searchRevision++

@@ -5,6 +5,7 @@ import { getOfflineStore, saveOfflineMutation } from '../../offline/runtime'
 import type { OfflineEntity, SyncOperation } from '../../offline/types'
 import ReorderHandle from '../../shared/ReorderHandle.vue'
 import { startReorderDrag } from '../../shared/reorderDrag'
+import { readViewState, writeViewState } from '../../shared/uiViewState'
 import { epicProgress, projectProgress, featureTaskProgress } from './progress'
 
 type Feature = { id: string; title: string; description: string; position: number; version: number; status: string | number }
@@ -15,14 +16,16 @@ type ContextItem = { label: string; danger?: boolean; action: () => void }
 
 const api = '/api/v2/planning', taskApi = '/api/v2/tasks'
 const route = useRoute(), router = useRouter()
+const savedView = readViewState<{ path: string; showArchived: boolean; detailTaskId: string }>('planning', { path: '', showArchived: false, detailTaskId: '' })
 const state = reactive({
-  projects: [] as Project[], tasks: [] as Task[], busy: false, error: '', showArchived: false,
+  projects: [] as Project[], tasks: [] as Task[], busy: false, error: '', showArchived: savedView.showArchived === true,
   orderMode: false, pickerOpen: false, savingFeatureStatus: false,
   createType: '', editType: '', editId: '', title: '', description: '',
-  detailTaskId: '', editingKind: '' as '' | 'title' | 'description', editDraft: '',
+  detailTaskId: savedView.path === route.fullPath && typeof savedView.detailTaskId === 'string' ? savedView.detailTaskId : '', editingKind: '' as '' | 'title' | 'description', editDraft: '',
   menuOpen: false, menuKind: '', menuId: '', menuX: 0, menuY: 0, menuPoint: null as { x: number; y: number } | null,
   confirm: null as null | { title: string; body: string; label: string; onConfirm: () => void },
 })
+watch(() => [state.showArchived, state.detailTaskId], () => writeViewState('planning', { path: route.fullPath, showArchived: state.showArchived, detailTaskId: state.detailTaskId }))
 const projectId = computed(() => String(route.params.projectId || ''))
 const milestoneId = computed(() => String(route.params.milestoneId || ''))
 const featureId = computed(() => String(route.params.featureId || ''))
@@ -649,6 +652,16 @@ watch(() => route.fullPath, (nextPath, previousPath) => {
   if (nextSection === 'planning' && previousSection === 'planning') {
     state.detailTaskId = ''
     state.orderMode = false
+    state.pickerOpen = false
+    closeContextMenu()
+  }
+  if (previousSection === 'planning' && nextSection !== 'planning') {
+    state.editingKind = ''
+    state.editDraft = ''
+    state.createType = ''
+    state.editType = ''
+    state.title = ''
+    state.description = ''
     state.pickerOpen = false
     closeContextMenu()
   }
