@@ -16,16 +16,17 @@ type ContextItem = { label: string; danger?: boolean; action: () => void }
 
 const api = '/api/v2/planning', taskApi = '/api/v2/tasks'
 const route = useRoute(), router = useRouter()
-const savedView = readViewState<{ path: string; showArchived: boolean; detailTaskId: string }>('planning', { path: '', showArchived: false, detailTaskId: '' })
+const savedView = readViewState<{ path: string; showArchived: boolean; detailTaskId: string; taskFilter: string }>('planning', { path: '', showArchived: false, detailTaskId: '', taskFilter: 'all' })
 const state = reactive({
   projects: [] as Project[], tasks: [] as Task[], busy: false, error: '', showArchived: savedView.showArchived === true,
+  taskFilter: ['all', 'new', 'inprogress', 'done', 'archived'].includes(savedView.taskFilter) ? savedView.taskFilter : 'all',
   orderMode: false, pickerOpen: false, savingFeatureStatus: false,
   createType: '', editType: '', editId: '', title: '', description: '',
   detailTaskId: savedView.path === route.fullPath && typeof savedView.detailTaskId === 'string' ? savedView.detailTaskId : '', editingKind: '' as '' | 'title' | 'description', editDraft: '',
   menuOpen: false, menuKind: '', menuId: '', menuX: 0, menuY: 0, menuPoint: null as { x: number; y: number } | null,
   confirm: null as null | { title: string; body: string; label: string; onConfirm: () => void },
 })
-watch(() => [state.showArchived, state.detailTaskId], () => writeViewState('planning', { path: route.fullPath, showArchived: state.showArchived, detailTaskId: state.detailTaskId }))
+watch(() => [state.showArchived, state.detailTaskId, state.taskFilter], () => writeViewState('planning', { path: route.fullPath, showArchived: state.showArchived, detailTaskId: state.detailTaskId, taskFilter: state.taskFilter }))
 const projectId = computed(() => String(route.params.projectId || ''))
 const milestoneId = computed(() => String(route.params.milestoneId || ''))
 const featureId = computed(() => String(route.params.featureId || ''))
@@ -34,7 +35,19 @@ const milestone = computed(() => project.value?.milestones.find(item => item.id 
 const feature = computed(() => milestone.value?.features.find(item => item.id === featureId.value) || null)
 const depth = computed(() => feature.value ? 3 : milestone.value ? 2 : project.value ? 1 : 0)
 const linkedTasks = computed(() => state.tasks.filter(item => item.featureId === featureId.value))
-const visibleTasks = computed(() => linkedTasks.value.filter(item => workLower(item.workStatus) !== 'done').sort((a, b) => (a.planningPosition ?? a.position) - (b.planningPosition ?? b.position)))
+const visibleTasks = computed(() => linkedTasks.value.filter(item => {
+  if (state.taskFilter === 'all') return true
+  if (state.taskFilter === 'archived') return taskState(item) === 'archived'
+  if (taskState(item) === 'archived') return false
+  return workLower(item.workStatus) === state.taskFilter
+}).sort((a, b) => (a.planningPosition ?? a.position) - (b.planningPosition ?? b.position)))
+const taskFilters = [
+  { value: 'all', label: 'Все', dot: '' },
+  { value: 'new', label: 'Новая', dot: 'new' },
+  { value: 'inprogress', label: 'В работе', dot: 'work' },
+  { value: 'done', label: 'Готово', dot: 'done' },
+  { value: 'archived', label: 'В архиве', dot: 'archived' },
+]
 const taskProgress = computed(() => featureTaskProgress(linkedTasks.value))
 const detailTask = computed(() => state.detailTaskId ? state.tasks.find(item => item.id === state.detailTaskId) || null : null)
 const editMilestone = computed(() => project.value?.milestones.find(item => item.id === state.editId) || null)
@@ -112,7 +125,7 @@ function taskMeta(task: Task): { label: string; kind: string } | null {
   const st = taskState(task)
   if (st === 'planned') return null
   const ws = workLower(task.workStatus)
-  if (ws === 'done') return { label: st === 'archived' ? 'Готово · в архиве' : 'Готово', kind: 'completed' }
+  if (ws === 'done') return { label: st === 'archived' ? 'В архиве' : 'Готово', kind: st === 'archived' ? 'archived' : 'completed' }
   if (st === 'today' && ws === 'inprogress') return { label: 'В работе', kind: 'in_progress' }
   if (st === 'today') return { label: 'Сегодня', kind: 'today' }
   if (st === 'archived') return { label: 'В архиве', kind: 'archived' }
@@ -800,7 +813,10 @@ onBeforeUnmount(() => {
             </div>
           </div>
           <div class="planning-list-head planning-feature-list-head"><span>Задачи</span><div class="planning-list-actions"><button class="order-mode-toggle planning-order-toggle" type="button" :aria-pressed="state.orderMode ? 'true' : 'false'" :aria-label="state.orderMode ? 'Готово' : 'Включить сортировку'" @click="toggleOrderMode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h11M19 6v12m-2.5-2.5L19 18l2.5-2.5" /></svg></button><button type="button" aria-label="Добавить задачу" @click="startCreate('task')">＋</button></div></div>
-          <div v-if="!visibleTasks.length" class="planning-empty">{{ linkedTasks.length ? 'Нет невыполненных задач.' : 'У этой фичи пока нет задач.' }}</div>
+          <div class="planning-task-filters" aria-label="Фильтр задач">
+            <button v-for="filter in taskFilters" :key="filter.value" type="button" class="planning-task-filter" :class="{ active: state.taskFilter === filter.value }" :aria-pressed="state.taskFilter === filter.value" @click="state.taskFilter = filter.value"><span v-if="filter.dot" class="planning-task-filter-dot" :class="filter.dot" />{{ filter.label }}</button>
+          </div>
+          <div v-if="!visibleTasks.length" class="planning-empty">{{ linkedTasks.length ? 'По этому фильтру задач нет.' : 'У этой фичи пока нет задач.' }}</div>
           <div class="planning-feature-tasks">
             <template v-if="state.orderMode">
               <div v-for="item in visibleTasks" :key="'order-' + item.id" class="planning-feature-task planning-order-row" :data-order-id="item.id">

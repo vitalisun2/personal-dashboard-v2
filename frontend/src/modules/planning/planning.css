@@ -9,5 +9,16 @@
 .phone-shell .planning-feature-complete { padding: 9px 14px; border: 1px solid rgba(139,201,166,.25); border-radius: 10px; background: rgba(139,201,166,.12); color: var(--success); font: inherit; font-weight: 650; cursor: pointer; }
 .phone-shell .planning-feature-reopen { padding: 0; border: 0; background: transparent; color: var(--muted); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 .phone-shell .planning-feature-progress button:disabled { opacity: .5; cursor: wait; }
+.phone-shell .planning-task-filters { display: flex; gap: 6px; overflow-x: auto; margin: 0 0 12px; padding-bottom: 2px; flex: none; scrollbar-width: none; }
+.phone-shell .planning-task-filters::-webkit-scrollbar { display: none; }
+.phone-shell .planning-task-filter { min-height: 34px; padding: 0 10px; border: 1px solid transparent; border-radius: 10px; background: transparent; color: var(--muted); font-size: 12px; white-space: nowrap; }
+.phone-shell .planning-task-filter.active { border-color: var(--line); color: var(--text); font-weight: 650; }
+.phone-shell .planning-task-filter-dot { width: 8px; height: 8px; display: inline-block; margin-right: 6px; border-radius: 50%; vertical-align: 0; }
+.phone-shell .planning-task-filter-dot.new { border: 1px solid var(--muted); }
+.phone-shell .planning-task-filter-dot.work { background: var(--accent); }
+.phone-shell .planning-task-filter-dot.done { background: var(--success); }
+.phone-shell .planning-task-filter-dot.archived { background: #b69af2; }
+.phone-shell .planning-task-state.archived { display: flex; align-items: center; justify-content: center; color: #b69af2; }
+.phone-shell .planning-task-state.archived::before { content: ''; width: 7px; height: 7px; display: inline-block; margin-right: 5px; border-radius: 50%; background: currentColor; vertical-align: 1px; }
 .planning-error { display: flex; align-items: center; gap: 10px; margin: 12px 0 4px; padding: 11px 13px; border-radius: 10px; background: var(--danger-surface); color: var(--danger); font-size: 13px; line-height: 1.45 }
 .planning-error button { flex: none; margin-left: auto; padding: 2px 6px; border: 0; background: transparent; color: inherit; font-size: 15px; line-height: 1; cursor: pointer }
