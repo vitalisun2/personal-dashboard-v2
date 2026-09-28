@@ -104,12 +104,19 @@ export async function syncPendingOperations(
     for (const operation of pendingOperations) {
       const key = entityKey(operation.type, operation.id);
       if (!pendingByEntity.has(key)) pendingByEntity.set(key, operation);
+      const order = (operation.payload as { operation?: string; order?: Array<{ id: string }> } | undefined);
+      if (order?.operation === 'reorder') for (const member of order.order ?? []) {
+        const memberKey = entityKey(operation.type, member.id);
+        if (!pendingByEntity.has(memberKey)) pendingByEntity.set(memberKey, operation);
+      }
     }
 
     for (const change of page.changes) {
       const pending = pendingByEntity.get(entityKey(change.snapshot.type, change.snapshot.id));
       if (pending) {
-        if (pending.expectedVersion === null || change.snapshot.version > pending.expectedVersion) {
+        // Other members belong to the same pending list operation. Preserve their
+        // local values, but never label a sibling snapshot as the source entity.
+        if (pending.id === change.snapshot.id && (pending.expectedVersion === null || change.snapshot.version > pending.expectedVersion)) {
           await store.putConflict(conflictFromOperation(pending, change.snapshot, "The entity changed on the server while a local operation was pending.", detectedAt));
           summary.conflicts++;
         }

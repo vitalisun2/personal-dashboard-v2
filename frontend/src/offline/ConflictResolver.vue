@@ -9,10 +9,11 @@ const tab = ref<'local' | 'server'>('local')
 const dialog = ref<HTMLDialogElement | null>(null)
 const trigger = ref<HTMLButtonElement | null>(null)
 const busy = ref(false)
+const opening = ref(false)
 const error = ref('')
 let unsubscribe: (() => void) | undefined
 let generation = 0
-const key = (item: EntityConflict) => `${item.type}:${item.id}`
+const key = (item: EntityConflict) => item.order?.scope ?? `${item.type}:${item.id}`
 const entityLabels: Record<string, string> = { 'planning.project': 'Проект', 'planning.milestone': 'Эпик', 'planning.feature': 'Фича', 'tasks.task': 'Задача', 'tasks.section': 'Раздел задач', 'tasks.groupOrder': 'Порядок разделов', 'knowledge.document': 'Документ', 'knowledge.section': 'Раздел базы знаний' }
 const entityLabel = computed(() => {
   if (!selected.value) return ''
@@ -38,6 +39,7 @@ function printable(value: unknown): string {
   return String(value)
 }
 const previewDeleted = computed(() => selected.value && (tab.value === 'local' ? selected.value.localDeleted : selected.value.serverDeleted))
+const orderItems = computed(() => selected.value?.order?.[tab.value] || [])
 const fields = computed(() => {
   const payload = selected.value && (tab.value === 'local' ? selected.value.local : selected.value.server)
   if (payload === null || payload === undefined) return []
@@ -62,11 +64,15 @@ function pick(item: EntityConflict) {
   error.value = ''
 }
 async function open() {
-  await reload()
-  if (!conflicts.value.length) return
-  pick(conflicts.value[0])
-  await nextTick()
-  dialog.value?.showModal()
+  if (opening.value) return
+  opening.value = true
+  try {
+    await reload()
+    if (!conflicts.value.length) return
+    pick(conflicts.value[0])
+    await nextTick()
+    dialog.value?.showModal()
+  } finally { opening.value = false }
 }
 function close() {
   dialog.value?.close()
@@ -79,7 +85,7 @@ function switchTab(event: KeyboardEvent) {
   void nextTick(() => dialog.value?.querySelector<HTMLButtonElement>(`#conflict-${tab.value}-tab`)?.focus())
 }
 async function choose() {
-  if (!selected.value || busy.value) return
+  if (!selected.value || busy.value || selected.value.order?.error) return
   busy.value = true
   error.value = ''
   const resolvedKey = key(selected.value)
@@ -104,27 +110,39 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <button v-if="conflicts.length" ref="trigger" class="conflict-trigger" type="button" @click="open">
-    Разобрать конфликты · {{ conflicts.length }}
+  <button v-if="conflicts.length" ref="trigger" class="conflict-trigger" type="button" :disabled="opening" @click="open">
+    {{ opening ? 'Загружаем версии…' : `Разобрать конфликты · ${conflicts.length}` }}
   </button>
   <dialog ref="dialog" class="conflict-dialog" aria-labelledby="conflict-heading" @close="selected = null" @click="event => { if (event.target === dialog && !busy) close() }">
     <div class="conflict-dialog-inner">
       <header class="conflict-header">
-        <h2 id="conflict-heading">Выберите версию</h2>
+        <h2 id="conflict-heading">{{ selected?.order ? 'Выберите порядок' : 'Выберите версию' }}</h2>
         <button type="button" class="conflict-close" aria-label="Закрыть без выбора" @click="close">×</button>
       </header>
-      <p class="conflict-hint">Данные изменились на нескольких устройствах. Сравните версии и выберите, какую сохранить целиком. Пока вы не выбрали, обе версии сохранены.</p>
+      <p v-if="selected?.order" class="conflict-hint">Порядок элементов изменился на нескольких устройствах. Выберите последовательность. Изменится только порядок: названия, описания и содержимое сохранятся. Пока вы не выбрали, конфликт остаётся нерешённым.</p>
+      <p v-else class="conflict-hint">Данные изменились на нескольких устройствах. Сравните версии и выберите, какую сохранить целиком. Пока вы не выбрали, обе версии сохранены.</p>
       <div v-if="conflicts.length > 1" class="conflict-list" aria-label="Конфликтующие элементы">
         <button v-for="item in conflicts" :key="key(item)" type="button" :class="{ active: selected && key(selected) === key(item) }" :disabled="busy" @click="pick(item)">{{ item.title }}</button>
       </div>
       <template v-if="selected">
-        <h3 class="conflict-title">{{ entityLabel }} · {{ selected.title }}</h3>
+        <h3 class="conflict-title">{{ selected.order ? selected.title : `${entityLabel} · ${selected.title}` }}</h3>
         <div class="conflict-tabs" role="tablist" aria-label="Версия данных" @keydown="switchTab">
           <button id="conflict-local-tab" type="button" role="tab" :tabindex="tab === 'local' ? 0 : -1" :aria-selected="tab === 'local'" aria-controls="conflict-preview" :disabled="busy" @click="tab = 'local'">На этом устройстве</button>
           <button id="conflict-server-tab" type="button" role="tab" :tabindex="tab === 'server' ? 0 : -1" :aria-selected="tab === 'server'" aria-controls="conflict-preview" :disabled="busy" @click="tab = 'server'">На сервере</button>
         </div>
         <section id="conflict-preview" class="conflict-preview" role="tabpanel" :aria-labelledby="`conflict-${tab}-tab`" tabindex="0">
-          <p v-if="previewDeleted" class="conflict-deleted">В этой версии элемент удалён. Выбор этой версии сохранит удаление.</p>
+          <template v-if="selected.order">
+            <p v-if="selected.order.error" class="conflict-error" role="alert">{{ selected.order.error }} Закройте окно и откройте конфликт заново, чтобы обновить список.</p>
+            <ol v-else-if="orderItems.length" class="conflict-order" :aria-label="tab === 'local' ? 'Порядок на этом устройстве' : 'Порядок на сервере'">
+              <li v-for="item in orderItems" :key="item.id">{{ item.title || 'Без названия' }}</li>
+            </ol>
+            <p v-else>В этом списке нет элементов.</p>
+            <div v-if="!selected.order.error" class="conflict-order-notes">
+              <p v-if="selected.order.addedTitles?.length">Новые элементы с сервера добавлены в конец порядка устройства: {{ selected.order.addedTitles.join(', ') }}.</p>
+              <p v-if="selected.order.removedTitles?.length">Удалённые или перенесённые на сервере элементы исключены из порядка устройства: {{ selected.order.removedTitles.join(', ') }}.</p>
+            </div>
+          </template>
+          <p v-else-if="previewDeleted" class="conflict-deleted">В этой версии элемент удалён. Выбор этой версии сохранит удаление.</p>
           <dl v-else-if="fields.length">
             <template v-for="(field, index) in fields" :key="index"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></template>
           </dl>
@@ -133,7 +151,7 @@ onBeforeUnmount(() => {
         <p v-if="error" class="conflict-error" role="alert">{{ error }}</p>
         <footer class="conflict-footer">
           <button type="button" class="conflict-later" @click="close">Решить позже</button>
-          <button type="button" class="conflict-choose" :disabled="busy" @click="choose">{{ busy ? 'Сохраняем…' : tab === 'local' ? 'Выбрать версию устройства' : 'Выбрать версию сервера' }}</button>
+          <button type="button" class="conflict-choose" :disabled="busy || !!selected.order?.error" @click="choose">{{ busy ? 'Сохраняем…' : selected.order ? (tab === 'local' ? 'Выбрать порядок устройства' : 'Выбрать порядок сервера') : (tab === 'local' ? 'Выбрать версию устройства' : 'Выбрать версию сервера') }}</button>
         </footer>
       </template>
     </div>
@@ -161,6 +179,11 @@ onBeforeUnmount(() => {
 .conflict-preview dt { margin-top: 16px; font-size: 12px; font-weight: 600; opacity: .7; }
 .conflict-preview dt:first-child { margin-top: 0; }
 .conflict-preview dd { margin: 5px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; }
+.conflict-order { margin: 0; padding-left: 26px; font-size: 14px; line-height: 1.5; }
+.conflict-order li { padding: 7px 0 7px 4px; overflow-wrap: anywhere; border-bottom: 1px solid var(--line); }
+.conflict-order li:last-child { border-bottom: 0; }
+.conflict-order-notes { font-size: 13px; line-height: 1.5; color: var(--muted); overflow-wrap: anywhere; }
+.conflict-order-notes p { margin-top: 12px; }
 .conflict-deleted, .conflict-error { color: var(--danger); line-height: 1.5; }
 .conflict-error { margin: 0; font-size: 13px; }
 .conflict-footer { display: flex; gap: 10px; justify-content: flex-end; }

@@ -8,7 +8,7 @@ import { search as searchIndexed, type SearchHit } from '../search/searchApi'
 import {
   cacheServerKnowledge, getCachedKnowledge, getLocallyDeletedKnowledgeIds,
   loadKnowledgeTree, pendingKnowledgeCount, queueKnowledgeDelete,
-  queueKnowledgeUpsert, searchKnowledge,
+  queueKnowledgeUpsert, queueKnowledgeReorder, searchKnowledge,
   type KnowledgeNode, type KnowledgeSearchResult,
 } from './knowledgeApi'
 import './knowledge.css'
@@ -354,6 +354,14 @@ async function reorderNode(node: KnowledgeNode, targetId: string, placement: 'be
   if (node.parentId === parentId && node.position === position) return
   busy.value = true
   try {
+    if (node.parentId === parentId) {
+      const ordered = childNodes(parentId).filter(item => item.id !== node.id)
+      ordered.splice(position, 0, node)
+      await queueKnowledgeReorder(node, ordered)
+      nodes.value = await getCachedKnowledge()
+      await refreshSyncState()
+      return
+    }
     const updated = { ...node, parentId, position, version: node.version + 1 }
     updated.path = nodePath(updated)
     await commitNode(updated, node.version)

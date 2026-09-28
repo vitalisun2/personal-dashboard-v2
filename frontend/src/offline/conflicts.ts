@@ -1,10 +1,12 @@
 import { getOfflineStore, withSyncPaused } from './runtime'
 import type { OfflineEntity, SyncOperation } from './types'
+import { listOrderConflicts, orderScope, orderReplacement, orderViewChanges, type OrderPreview } from './orderConflicts'
 
 type Data = Record<string, any>
 export type EntityConflict = {
   type: string; id: string; title: string; local: unknown; server: unknown
   localDeleted: boolean; serverDeleted: boolean; operationIds: string[]; serverVersion: number | null
+  order?: OrderPreview
 }
 
 function normalize(payload: unknown): Data {
@@ -33,12 +35,14 @@ function localView(entities: OfflineEntity[], type: string, id: string): Data {
     ?? entities.find(item => item.type === type && item.id === id))?.payload)
 }
 
-export async function listEntityConflicts(): Promise<EntityConflict[]> {
+export async function listEntityConflicts(freshOrder = false): Promise<EntityConflict[]> {
   const store = await getOfflineStore()
   const [conflicts, pending, entities] = await Promise.all([store.listConflicts(), store.listPendingOperations(), store.listEntities()])
   const grouped = new Map<string, EntityConflict>()
   for (const conflict of conflicts) {
-    const operations = pending.filter(item => item.type === conflict.type && item.id === conflict.id)
+    const origin = pending.find(item => item.operationId === conflict.operationId)
+    if (origin && orderScope(origin)) continue
+    const operations = pending.filter(item => item.type === conflict.type && item.id === conflict.id && !orderScope(item))
     if (!operations.length) continue
     const local = localView(entities, conflict.type, conflict.id)
     const server = normalize(conflict.serverPayload)
@@ -49,7 +53,7 @@ export async function listEntityConflicts(): Promise<EntityConflict[]> {
       serverDeleted: conflict.serverDeleted === true || conflict.serverVersion === null,
       serverVersion: conflict.serverVersion, operationIds: operations.map(item => item.operationId) })
   }
-  return [...grouped.values()]
+  return [...grouped.values(), ...await listOrderConflicts(store, conflicts, pending, entities, freshOrder)]
 }
 
 function replacementPayload(conflict: EntityConflict, local: Data, source: Data): Data {
@@ -96,17 +100,25 @@ function updateViews(entities: OfflineEntity[], conflict: EntityConflict, value:
 export async function resolveEntityConflict(conflict: EntityConflict, choice: 'local' | 'server'): Promise<void> {
   await withSyncPaused(async () => {
     const store = await getOfflineStore()
-    const fresh = (await listEntityConflicts()).find(item => item.type === conflict.type && item.id === conflict.id)
+    const fresh = (await listEntityConflicts(!!conflict.order)).find(item => conflict.order
+      ? item.order?.scope === conflict.order.scope : !item.order && item.type === conflict.type && item.id === conflict.id)
+    if (fresh?.order?.error) throw new Error(fresh.order.error)
     if (!fresh || JSON.stringify(fresh) !== JSON.stringify(conflict)) throw new Error('Версии изменились. Откройте конфликт заново и проверьте обе версии.')
     const [pending, entities] = await Promise.all([store.listPendingOperations(), store.listEntities()])
-    const operations = pending.filter(item => item.type === conflict.type && item.id === conflict.id)
+    if (conflict.order) {
+      if (conflict.order.error) throw new Error(conflict.order.error)
+      const replacements = choice === 'local' ? orderReplacement(conflict, pending) : []
+      await store.resolveOrderOperations(pending.map(item => item.operationId), conflict.operationIds, replacements,
+        orderViewChanges(conflict, choice, entities, pending))
+      window.dispatchEvent(new Event('offline-data-updated'))
+      return
+    }
+    const operations = pending.filter(item => item.type === conflict.type && item.id === conflict.id && !orderScope(item))
     const replacements: SyncOperation[] = []
     let value = normalize(choice === 'local' ? conflict.local : conflict.server)
     let deleted = choice === 'local' ? conflict.localDeleted : conflict.serverDeleted
     let version = conflict.serverVersion ?? 0
     if (choice === 'local' && !(conflict.localDeleted && conflict.serverDeleted)) {
-      if (!conflict.localDeleted && operations.some(item => normalize(item.payload).operation === 'reorder'))
-        throw new Error('Конфликт порядка затрагивает несколько записей. Локальные изменения сохранены. Примите серверный порядок и повторите перестановку.')
       if (conflict.serverDeleted && !conflict.localDeleted)
         throw new Error('Запись удалена на сервере. Локальная версия сохранена. Скопируйте её в новую запись перед принятием удаления.')
       const source = normalize(operations[0]?.payload)
@@ -117,7 +129,7 @@ export async function resolveEntityConflict(conflict: EntityConflict, choice: 'l
       version++
     }
     await store.resolveEntityOperations(conflict.type, conflict.id, pending.map(item => item.operationId), conflict.serverVersion, replacements,
-      updateViews(entities, conflict, value, deleted, version))
+      updateViews(entities, conflict, value, deleted, version), conflict.operationIds)
     window.dispatchEvent(new Event('offline-data-updated'))
   })
 }

@@ -25,6 +25,11 @@ export type KnowledgeSearchResult = {
 }
 
 export const ENTITY_TYPE = 'knowledge.node'
+type KnowledgeReorder = KnowledgeNode & { operation: 'reorder'; order: Array<{ id: string; expectedVersion: number; previousPosition?: number }> }
+
+function isKnowledgeReorder(payload: unknown): payload is KnowledgeReorder {
+  return !!payload && typeof payload === 'object' && (payload as KnowledgeReorder).operation === 'reorder' && Array.isArray((payload as KnowledgeReorder).order)
+}
 
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetchWithTimeout(url, { ...init, headers: { 'Content-Type': 'application/json', ...init?.headers } })
@@ -40,6 +45,16 @@ export async function getCachedKnowledge(): Promise<KnowledgeNode[]> {
   const entities = await store.listEntities<KnowledgeNode>(ENTITY_TYPE)
   const active = entities.filter(entity => !entity.deleted && entity.payload && !entity.payload.archived)
   const byId = new Map(active.map(entity => [entity.id, entity.payload!]))
+  // One reorder is a sibling-scope intent. Its optimistic projection must also survive reload.
+  for (const operation of await store.listPendingOperations()) {
+    if (operation.type !== ENTITY_TYPE || !isKnowledgeReorder(operation.payload)) continue
+    for (const [position, entry] of operation.payload.order.entries()) {
+      const node = byId.get(entry.id)
+      if (!node || node.parentId !== operation.payload.parentId) continue
+      const changed = (entry.previousPosition ?? node.position) !== position
+      byId.set(node.id, { ...node, position, version: Math.max(node.version, entry.expectedVersion + (changed ? 1 : 0)) })
+    }
+  }
   const valid = new Set<string>()
   for (const node of byId.values()) {
     if (!node.parentId) {
@@ -64,6 +79,9 @@ export async function cacheServerKnowledge(nodes: KnowledgeNode[]): Promise<void
   const store = await getOfflineStore()
   const pending = await store.listPendingOperations()
   const pendingIds = new Set(pending.filter(operation => operation.type === ENTITY_TYPE).map(operation => operation.id))
+  for (const operation of pending) if (operation.type === ENTITY_TYPE && isKnowledgeReorder(operation.payload)) {
+    for (const entry of operation.payload.order) pendingIds.add(entry.id)
+  }
   for (const node of nodes) {
     if (pendingIds.has(node.id)) continue
     const cached = await store.getEntity<KnowledgeNode>(ENTITY_TYPE, node.id)
@@ -110,6 +128,17 @@ export async function queueKnowledgeUpsert(node: KnowledgeNode, baseVersion: num
   }
   const entity: OfflineEntity<KnowledgeNode> = { type: ENTITY_TYPE, id: node.id, version: expectedVersion === null ? 1 : expectedVersion + 1, payload: node, deleted: false }
   await saveOfflineMutation(entity, operation)
+}
+
+export async function queueKnowledgeReorder(node: KnowledgeNode, ordered: KnowledgeNode[]): Promise<void> {
+  if (ordered.some(item => item.parentId !== node.parentId) || !ordered.some(item => item.id === node.id)) throw new Error('Порядок должен содержать узлы одного раздела.')
+  const position = ordered.findIndex(item => item.id === node.id)
+  const updated = { ...node, position, version: node.version + (node.position === position ? 0 : 1) }
+  const payload: KnowledgeReorder = { ...updated, operation: 'reorder', order: ordered.map(item => ({ id: item.id, expectedVersion: item.version, previousPosition: item.position })) }
+  await saveOfflineMutation({ type: ENTITY_TYPE, id: node.id, version: updated.version, payload: updated, deleted: false }, {
+    operationId: crypto.randomUUID(), type: ENTITY_TYPE, id: node.id, expectedVersion: node.version,
+    kind: 'upsert', payload, createdAt: await nextOperationTime(node.id),
+  })
 }
 
 export async function queueKnowledgeDelete(node: KnowledgeNode): Promise<void> {

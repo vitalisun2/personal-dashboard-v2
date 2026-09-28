@@ -80,7 +80,33 @@ var archivedUpsert = await service.ApplySyncOperationAsync(new SyncOperation(Gui
     archiveResult.Version, SyncOperationKind.Upsert, archivedPayload));
 Require(!archivedUpsert.Applied && archivedUpsert.Current?.Version == archiveResult.Version,
     "upserts cannot silently edit an archived node");
+
+var orderParent = (await service.CreateAsync(KnowledgeNodeType.Section, "Order scope", null)).ChangedNodes.Single();
+var first = (await service.CreateAsync(KnowledgeNodeType.Document, "First", orderParent.Id)).ChangedNodes.Single();
+var second = (await service.CreateAsync(KnowledgeNodeType.Document, "Second", orderParent.Id)).ChangedNodes.Single();
+var changedSecond = (await service.EditDocumentAsync(second.Id, "Server title", "Server body", second.Version)).ChangedNodes.Single();
+SyncOperation Order(long firstVersion, long secondVersion) => new(Guid.NewGuid(), "knowledge.node", first.Id, firstVersion, SyncOperationKind.Upsert,
+    System.Text.Json.JsonSerializer.SerializeToElement(new { operation = "reorder", id = first.Id, parentId = orderParent.Id,
+        title = "Stale title must be ignored", markdown = "Stale body must be ignored",
+        order = new[] { new { id = second.Id, expectedVersion = secondVersion }, new { id = first.Id, expectedVersion = firstVersion } } }));
+var staleOrder = await service.ApplySyncOperationAsync(Order(first.Version, second.Version));
+Require(!staleOrder.Applied, "reorder rejects a stale sibling version even when the source version matches");
+var unchangedOrder = (await service.GetTreeAsync()).Where(node => node.ParentId == orderParent.Id).OrderBy(node => node.Position).ToArray();
+Require(unchangedOrder[0].Id == first.Id && unchangedOrder[0].Version == first.Version && unchangedOrder[1].Version == changedSecond.Version,
+    "a rejected reorder does not partially alter positions or versions");
+var appliedOrder = await service.ApplySyncOperationAsync(Order(first.Version, changedSecond.Version));
+Require(appliedOrder.Applied, "same-parent reorder accepts the complete current sibling versions");
+var reordered = (await service.GetTreeAsync()).Where(node => node.ParentId == orderParent.Id).OrderBy(node => node.Position).ToArray();
+Require(reordered[0].Id == second.Id && reordered[1].Id == first.Id && reordered[0].Version == changedSecond.Version + 1 && reordered[1].Version == first.Version + 1,
+    "reorder advances only changed positions and retains the requested sibling order");
+Require(reordered[0].Title == "Server title" && reordered[0].Markdown == "Server body" && reordered[1].Title == "First",
+    "reorder preserves server node content even when the payload includes stale content");
+await service.CreateAsync(KnowledgeNodeType.Document, "Added concurrently", orderParent.Id);
+var missingSiblingOrder = await service.ApplySyncOperationAsync(Order(reordered[1].Version, reordered[0].Version));
+Require(!missingSiblingOrder.Applied && (await service.GetTreeAsync()).Count(node => node.ParentId == orderParent.Id) == 3,
+    "reorder rejects changed membership instead of omitting a concurrently added sibling");
 Console.WriteLine("Knowledge scenario passed: nested create/edit/move/rename/archive/restore/delete and stale version conflict.");
+Console.WriteLine("Knowledge order scenario passed: whole sibling scope, atomic stale-version/membership rejection, content preservation.");
 
 static void Require(bool condition, string message)
 {

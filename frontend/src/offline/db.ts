@@ -178,23 +178,40 @@ export class IndexedDbOfflineStore implements OfflineStore {
     return conflicts.sort((a, b) => a.detectedAt.localeCompare(b.detectedAt));
   }
 
-  async resolveEntityOperations(type: string, id: string, expectedQueue: string[], serverVersion: number | null, replacements: SyncOperation[], entities: OfflineEntity[]): Promise<void> {
+  async resolveEntityOperations(type: string, id: string, expectedQueue: string[], serverVersion: number | null, replacements: SyncOperation[], entities: OfflineEntity[], selectedIds?: string[]): Promise<void> {
     const transaction = this.database.transaction(["entities", "operations", "conflicts"], "readwrite");
     const completion = transactionDone(transaction);
     const operations = transaction.objectStore("operations");
     const current = await requestResult(operations.getAll()) as SyncOperation[];
     const conflicts = transaction.objectStore("conflicts");
     const allConflicts = await requestResult(conflicts.getAll()) as SyncConflict[];
-    const latestVersion = allConflicts.filter(item => item.type === type && item.id === id)
+    const selected = (operation: { type: string; id: string; operationId: string }) => operation.type === type && operation.id === id && (!selectedIds || selectedIds.includes(operation.operationId));
+    const latestVersion = allConflicts.filter(selected)
       .reduce((version, item) => Math.max(version, item.serverVersion ?? -1), -1);
     if (latestVersion !== (serverVersion ?? -1) || JSON.stringify(current.map(item => item.operationId).sort()) !== JSON.stringify([...expectedQueue].sort())) {
       await completion;
       throw new Error("Данные изменились. Откройте конфликт заново перед выбором версии.");
     }
-    for (const operation of current) if (operation.type === type && operation.id === id) operations.delete(operation.operationId);
+    for (const operation of current) if (selected(operation)) operations.delete(operation.operationId);
     for (const replacement of replacements) operations.add(JSON.parse(JSON.stringify(replacement)));
     for (const conflict of allConflicts)
-      if (conflict.type === type && conflict.id === id) conflicts.delete(conflict.operationId);
+      if (selected(conflict)) conflicts.delete(conflict.operationId);
+    for (const entity of entities) transaction.objectStore("entities").put(JSON.parse(JSON.stringify(entity)));
+    await completion;
+  }
+
+  /** A list decision removes its reorder operations only, never an item's content edits. */
+  async resolveOrderOperations(expectedQueue: string[], selectedIds: string[], replacements: SyncOperation[], entities: OfflineEntity[]): Promise<void> {
+    const transaction = this.database.transaction(["entities", "operations", "conflicts"], "readwrite");
+    const completion = transactionDone(transaction);
+    const operations = transaction.objectStore("operations");
+    const current = await requestResult(operations.getAll()) as SyncOperation[];
+    if (JSON.stringify(current.map(item => item.operationId).sort()) !== JSON.stringify([...expectedQueue].sort())) {
+      await completion;
+      throw new Error("Данные изменились. Откройте конфликт заново перед выбором порядка.");
+    }
+    for (const id of selectedIds) { operations.delete(id); transaction.objectStore("conflicts").delete(id); }
+    for (const replacement of replacements) operations.add(JSON.parse(JSON.stringify(replacement)));
     for (const entity of entities) transaction.objectStore("entities").put(JSON.parse(JSON.stringify(entity)));
     await completion;
   }

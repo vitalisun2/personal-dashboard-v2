@@ -3,6 +3,23 @@ import test from 'node:test';
 import { HttpSyncTransport } from './httpSyncTransport.ts';
 import { syncPendingOperations, toSyncPushRequest } from './sync.ts';
 
+test('pull preserves every member of a pending reorder without mislabelling sibling conflicts', async () => {
+  const operation = { operationId: 'reorder', type: 'knowledge.node', id: 'a', expectedVersion: 1, kind: 'upsert',
+    payload: { operation: 'reorder', order: [{ id: 'b', expectedVersion: 1 }, { id: 'a', expectedVersion: 1 }] }, createdAt: '2026-09-28T00:00:00Z' };
+  const store = {
+    async getSyncEpoch() { return 'epoch'; }, async listPendingOperations() { return [operation]; },
+    async getChangeCursor() { return 0; }, async setChangeCursor(value) { assert.equal(value, 1); },
+    async putEntity() { assert.fail('Must preserve the locally reordered sibling'); },
+    async putConflict() { assert.fail('Sibling snapshot must not become a conflict for source a'); },
+  };
+  const transport = {
+    async getSyncEpoch() { return 'epoch'; },
+    async pushOperations() { return [{ operationId: 'reorder', applied: false, skipped: true, current: null }]; },
+    async pullChanges() { return { changes: [{ sequence: 1, snapshot: { type: 'knowledge.node', id: 'b', version: 8, payload: { title: 'Remote', position: 1 }, deleted: false } }], nextSequence: 1, isComplete: true }; },
+  };
+  assert.deepEqual(await syncPendingOperations(store, transport), { applied: 0, conflicts: 0, pulled: 1 });
+});
+
 test('the HTTP transport does not rebind the fetch receiver', async () => {
   let receiver = 'not called';
   function fetcher() {

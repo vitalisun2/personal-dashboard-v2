@@ -50,6 +50,39 @@ public sealed partial class KnowledgeService
             if (operation.Payload is not JsonElement payloadElement || payloadElement.ValueKind != JsonValueKind.Object)
                 return new SyncMutationResult(false, Current(), "An upsert requires a Knowledge payload.");
 
+            if (payloadElement.TryGetProperty("operation", out var intent) && intent.ValueKind == JsonValueKind.String && intent.GetString() == "reorder")
+            {
+                var reorder = payloadElement.Deserialize<KnowledgeReorderSyncPayload>(SyncJsonOptions);
+                if (reorder is null || reorder.Id != operation.Id || root is not { IsActive: true })
+                    return new SyncMutationResult(false, Current(), "Reorder requires a matching active source node.");
+                if (operation.ExpectedVersion is not long sourceVersion || root.Version != sourceVersion)
+                    return new SyncMutationResult(false, Current(), "The source node version changed.");
+                if (root.ParentId != reorder.ParentId)
+                    return new SyncMutationResult(false, Current(), "Reorder cannot change a node's parent.");
+                var siblings = all.Where(node => node.IsActive && node.ParentId == reorder.ParentId).ToDictionary(node => node.Id);
+                var order = reorder.Order;
+                if (order is null || order.Count != siblings.Count || order.Select(item => item.Id).Distinct().Count() != order.Count ||
+                    !order.Select(item => item.Id).ToHashSet().SetEquals(siblings.Keys))
+                    return new SyncMutationResult(false, Current(), "Reorder must include every current sibling exactly once.");
+                if (order.Any(item => siblings[item.Id].Version != item.ExpectedVersion))
+                    return new SyncMutationResult(false, Current(), "A sibling version changed.");
+                var changed = new List<KnowledgeNode>();
+                var now = timeProvider.GetUtcNow();
+                for (var index = 0; index < order.Count; index++)
+                {
+                    var sibling = siblings[order[index].Id];
+                    if (sibling.Position == index) continue;
+                    sibling.SetPosition(index, now);
+                    changed.Add(sibling);
+                }
+                if (changed.Count > 0)
+                {
+                    await tx.SaveChangesAsync(ct);
+                    await AppendChangesAsync(MakeMutation(changed, all), ct);
+                }
+                return new SyncMutationResult(true, Snapshot(root, all), null);
+            }
+
             var payload = payloadElement.Deserialize<KnowledgeSyncPayload>(SyncJsonOptions);
             if (payload is null || payload.Id != operation.Id)
                 return new SyncMutationResult(false, Current(), "Payload ID must match the operation ID.");
@@ -168,6 +201,8 @@ public sealed partial class KnowledgeService
         return new EntitySnapshot("knowledge.node", node.Id, node.Version, node.IsDeleted, payload);
     }
 }
+
+public sealed record KnowledgeReorderSyncPayload(Guid Id, Guid? ParentId, IReadOnlyList<PersonalDashboard.V2.Contracts.AgentAccess.VersionedEntityId>? Order);
 
 public sealed record KnowledgeSyncPayload(
     Guid Id,
