@@ -1,6 +1,6 @@
 /* ===== Knowledge module: only what shared/styles.css does not cover =====
    Tree rows, toolbar, search results, sheets, confirm dialogs and doc detail
-   use the global v2/mockup classes (.phone-shell prefix) from shared/styles.css. */
+   use the global shared classes (.phone-shell prefix) from shared/styles.css. */
 
 .knowledge-sync { display: flex; min-height: 32px; align-items: center; gap: 9px; margin: 0 0 13px; color: var(--muted); font-size: 11px; }
 .knowledge-sync span:first-child { flex: 1; }

@@ -1,4 +1,4 @@
-/* Tasks module — only styles NOT covered by shared/phone-shell styles (v2/mockup parity).
+/* Tasks module — only styles not covered by shared/phone-shell styles.
    All .task-* layout/visuals live in shared/styles.css under .phone-shell; here we add
    module-specific bits: [hidden] handling for buttons, error banner. */
 .phone-shell [hidden] { display: none !important }

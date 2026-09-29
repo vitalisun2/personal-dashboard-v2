@@ -1,4 +1,4 @@
-/* Chat screen (v2/mockup layout). Base mockup classes — chat-back-row, chat-scroll, chat-list,
+/* Chat screen layout. Base shared classes — chat-back-row, chat-scroll, chat-list,
    chat-row, chat-bubble, chat-composer, chat-input, chat-send, chat-history-* — live in
    shared/styles.css. This file covers the chat screen shell plus the data-specific widgets
    (proposals, sources, conflict preview, history list extras). */

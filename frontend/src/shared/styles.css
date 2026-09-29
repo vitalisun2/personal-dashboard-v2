@@ -40,8 +40,8 @@ button { border: 0; background: transparent; cursor: pointer; }
 }
 
 
-/* ===== v2/mockup theme ===== */
-/* Mockup design tokens */
+/* ===== Shared V2 theme ===== */
+/* Shared design tokens */
 .phone-shell{--toolbar-control-size:48px;--toolbar-control-radius:12px;--toolbar-gap:8px;--toolbar-top-space:20px;--toolbar-bottom-space:14px}
 
 
@@ -438,7 +438,7 @@ button { border: 0; background: transparent; cursor: pointer; }
 @media (hover:hover){.phone-shell .planning-chevron-slot:hover>.planning-row-arrow,.phone-shell .planning-chevron-slot:focus-within>.planning-row-arrow{opacity:0}.phone-shell .planning-chevron-slot:hover>.planning-menu-trigger,.phone-shell .planning-chevron-slot:focus-within>.planning-menu-trigger,.phone-shell .planning-feature-task:hover>.planning-task-menu-trigger{opacity:1;pointer-events:auto}}
 .phone-shell .planning-task-menu-trigger{flex:none;width:30px;height:34px}
 @media (hover:none){.phone-shell .planning-task-menu-trigger{display:none}}
-/* Chat UI adapted from the standalone chat mockup. */
+/* Chat UI styles. */
 .phone-shell .topline{align-items:center}
 .phone-shell .chat-head-btn{width:42px;height:42px;border-radius:12px;background:var(--surface);border:1px solid var(--line);color:var(--text);display:grid;place-items:center;flex:none}
 .phone-shell .chat-head-btn svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
@@ -509,7 +509,7 @@ button { border: 0; background: transparent; cursor: pointer; }
 }
 
 
-/* Shell sizing (mockup: #kb-fixed-drop{width:100%;max-width:393px;margin:24px auto}) */
+/* Shell sizing */
 .app-frame { padding: 24px 0; }
 .phone-shell { width: min(100%, 393px); max-height: calc(100dvh - 48px); min-height: 560px; margin: 0 auto; }
 @media (max-width: 420px), (pointer: coarse) and (max-width: 600px), (pointer: coarse) and (max-height: 600px) {

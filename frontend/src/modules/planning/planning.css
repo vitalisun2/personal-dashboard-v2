@@ -1,5 +1,5 @@
 /* Planning page — module-specific styles only.
-   The mockup .planning-* theme (toolbar, picker, rows, detail, sheet, order mode,
+   The shared .planning-* theme (toolbar, picker, rows, detail, sheet, order mode,
    context menu, confirm layer) lives in shared/styles.css under .phone-shell. */
 .planning-section.planning-page { position: static; }
 .phone-shell .planning-feature-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
