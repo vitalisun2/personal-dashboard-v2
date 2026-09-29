@@ -2,7 +2,6 @@
 **/obj/
 frontend/node_modules/
 frontend/dist/
-mockup/
 .env
 .env.*
 evaluation/
