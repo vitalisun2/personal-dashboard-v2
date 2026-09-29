@@ -167,15 +167,30 @@ function menuItemsFor(kind: 'task' | 'section' | 'project', id: string): MenuIte
     return items
   }
   if (kind === 'section') {
-    const section = state.sections.find(s => s.id === id); if (!section) return []
-    const tasks = state.tasks.filter(t => t.sectionId === section.id)
-    return [
+    const section = state.sections.find(s => s.id === id)
+    const tasks = id === 'local'
+      ? state.tasks.filter(task => !task.projectId && !state.sections.some(item => item.id === task.sectionId))
+      : state.tasks.filter(t => t.sectionId === id)
+    const items: MenuItem[] = []
+    if (state.bucket === 'Сегодня') {
+      const completed = tasks.filter(task => statusName(task.workStatus) === 'Done')
+      if (completed.length) items.push({ label: 'Переместить готовые в архив', action: () => archiveCompletedTasks(section?.name || 'Личное', completed) })
+    }
+    if (!section) return items
+    items.push(
       { label: 'Переименовать', action: () => startRename('section', section.id) },
       { label: 'Удалить раздел', danger: true, action: () => deleteSectionFlow(section, tasks) },
-    ]
+    )
+    return items
   }
   const tasks = state.tasks.filter(t => t.projectId === id)
-  return [{ label: 'Удалить раздел', danger: true, action: () => deleteProjectGroupFlow(id, tasks) }]
+  const items: MenuItem[] = []
+  if (state.bucket === 'Сегодня') {
+    const completed = tasks.filter(task => statusName(task.workStatus) === 'Done')
+    if (completed.length) items.push({ label: 'Переместить готовые в архив', action: () => archiveCompletedTasks(state.projects.find(project => project.id === id)?.title || 'Проект', completed) })
+  }
+  items.push({ label: 'Удалить раздел', danger: true, action: () => deleteProjectGroupFlow(id, tasks) })
+  return items
 }
 function openMenuAt(key: string, point: { x: number; y: number } | null) {
   if (state.orderMode) return
@@ -314,6 +329,14 @@ async function advanceTask(task: Task) {
 }
 function archiveTask(task: Task) {
   askConfirm({ title: 'Убрать задачу в архив?', body: `«${task.title}» можно будет найти в архиве.`, confirmLabel: 'В архив', onConfirm: () => { void mutate(task, 'archive') } })
+}
+function archiveCompletedTasks(sectionName: string, tasks: Task[]) {
+  askConfirm({
+    title: `Переместить готовые задачи раздела «${sectionName}» в архив?`,
+    body: 'Выполненные задачи можно будет найти в архиве. Раздел и незавершённые задачи останутся на месте.',
+    confirmLabel: 'В архив',
+    onConfirm: () => { void (async () => { for (const task of tasks) await mutate(task, 'archive', 'POST', { expectedVersion: task.version, preserveSectionWhenEmpty: true }) })() },
+  })
 }
 function deleteSectionFlow(section: Section, tasks: Task[]) {
   askConfirm({
@@ -697,12 +720,12 @@ async function mutate(task: Task, suffix: string, method = 'POST', body: object 
       const placement = suffix === 'status' || suffix === 'section' ? task.location : suffix === 'today' ? 'today' : suffix === 'backlog' || suffix === 'restore' ? 'backlog' : suffix === 'planning' ? 'planned' : 'archived'
       const payload = suffix === 'section'
         ? { operation: 'update', kind: 'task', id: task.id, expectedVersion: task.version, sectionId: (body as { sectionId: string }).sectionId }
-        : { operation, kind: 'task', id: task.id, expectedVersion: task.version, placement, workStatus: suffix === 'status' ? (body as { status: string }).status : statusName(task.workStatus) === 'InProgress' ? 'inProgress' : statusName(task.workStatus).toLowerCase(), sectionId: suffix === 'planning' ? null : task.sectionId, ...(suffix === 'planning' && task.projectId && task.milestoneId && task.featureId ? { planning: { projectId: task.projectId, milestoneId: task.milestoneId, featureId: task.featureId } } : {}) }
+      : { operation, kind: 'task', id: task.id, expectedVersion: task.version, placement, workStatus: suffix === 'status' ? (body as { status: string }).status : statusName(task.workStatus) === 'InProgress' ? 'inProgress' : statusName(task.workStatus).toLowerCase(), sectionId: suffix === 'planning' ? null : task.sectionId, ...(suffix === 'planning' && task.projectId && task.milestoneId && task.featureId ? { planning: { projectId: task.projectId, milestoneId: task.milestoneId, featureId: task.featureId } } : {}), ...(suffix === 'archive' && (body as { preserveSectionWhenEmpty?: boolean }).preserveSectionWhenEmpty ? { preserveSectionWhenEmpty: true } : {}) }
       const local = { ...task, sectionId: suffix === 'archive' ? undefined : suffix === 'section' ? (body as { sectionId: string }).sectionId : task.sectionId, workStatus: suffix === 'status' ? (body as { status: string }).status : suffix === 'restore' || suffix === 'backlog' ? 'new' : task.workStatus, location: suffix === 'section' ? task.location : placement, version: task.version + 1 }
       if (suffix === 'archive') local.archivedSectionName = state.sections.find(section => section.id === task.sectionId)?.name || task.archivedSectionName
       await queueTask('tasks.task', task.id, task.version, payload, false, local)
       state.tasks = state.tasks.filter(x => x.id !== task.id); if (String(local.location).toLowerCase() === location.value.toLowerCase()) state.tasks.push(local)
-      if (suffix === 'archive' && task.sectionId && !state.tasks.some(item => item.sectionId === task.sectionId)) {
+      if (suffix === 'archive' && !(body as { preserveSectionWhenEmpty?: boolean }).preserveSectionWhenEmpty && task.sectionId && !state.tasks.some(item => item.sectionId === task.sectionId)) {
         state.sections = state.sections.filter(section => section.id !== task.sectionId)
         const store = await getOfflineStore(), section = await store.getEntity('tasks.section.view', task.sectionId)
         if (section) await store.putEntity({ ...section, deleted: true, updatedAt: new Date().toISOString() })

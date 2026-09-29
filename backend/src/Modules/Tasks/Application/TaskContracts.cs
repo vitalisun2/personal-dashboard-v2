@@ -12,6 +12,7 @@ public interface ITasksRepository
     Task<IReadOnlyList<TaskItem>> ListAsync(TaskLocation? location, CancellationToken ct);
     Task<TaskItem?> GetAsync(Guid id, CancellationToken ct);
     Task SaveAsync(TaskItem item, CancellationToken ct);
+    Task SaveAsync(TaskItem item, CancellationToken ct, bool preserveSectionWhenEmpty) => SaveAsync(item, ct);
     Task DeleteAsync(Guid id, CancellationToken ct);
     Task<IReadOnlyList<TaskSection>> ListSectionsAsync(TaskLocation location, CancellationToken ct);
     Task SaveSectionAsync(TaskSection section, CancellationToken ct);
@@ -129,11 +130,11 @@ public sealed class TasksService(ITasksRepository repository, PersonalDashboard.
     }
     public Task<TaskView> ReturnToPlanAsync(Guid id, long expectedVersion, CancellationToken ct) => Mutate(id, expectedVersion, x => x.ReturnToPlan(), ct);
     public Task<TaskView> SetStatusAsync(Guid id, long expectedVersion, TaskWorkStatus status, CancellationToken ct) => Mutate(id, expectedVersion, x => x.SetWorkStatus(status), ct);
-    public async Task<TaskView> ArchiveAsync(Guid id, long expectedVersion, CancellationToken ct)
+    public async Task<TaskView> ArchiveAsync(Guid id, long expectedVersion, CancellationToken ct, bool preserveSectionWhenEmpty = false)
     {
         var item = await Required(id, ct); Check(item.Version, expectedVersion);
         var sectionName = item.SectionId is { } sectionId ? (await FindSection(sectionId, ct)).Name : null;
-        item.Archive(sectionName); await repository.SaveAsync(item, ct); return Map(item);
+        item.Archive(sectionName); await repository.SaveAsync(item, ct, preserveSectionWhenEmpty); return Map(item);
     }
     public async Task<TaskView> RestoreAsync(Guid id, long expectedVersion, Guid? sectionId, CancellationToken ct)
     {

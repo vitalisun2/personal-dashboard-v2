@@ -51,7 +51,7 @@ public sealed class TasksAgentAccess(TasksService service) : ITasksAgentAccess
                         mutation.Position, mutation.ArchivedSectionName, ct),
                     TaskMutationKind.Move => await Move(mutation, ct),
                     TaskMutationKind.SetWorkStatus => await service.SetStatusAsync(mutation.Id, Version(mutation), Parse<TaskWorkStatus>(mutation.WorkStatus), ct),
-                    TaskMutationKind.Archive => await service.ArchiveAsync(mutation.Id, Version(mutation), ct),
+                    TaskMutationKind.Archive => await service.ArchiveAsync(mutation.Id, Version(mutation), ct, mutation.PreserveSectionWhenEmpty),
                     TaskMutationKind.Restore => await service.RestoreAsync(mutation.Id, Version(mutation), mutation.SectionId, ct),
                     TaskMutationKind.Reorder => await ReorderTask(mutation, ct),
                     _ => throw new ArgumentException("Unsupported task operation.")

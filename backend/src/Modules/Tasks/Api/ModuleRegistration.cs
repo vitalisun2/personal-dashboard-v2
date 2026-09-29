@@ -32,7 +32,7 @@ public static class TasksApiModule
         group.MapPost("/{id:guid}/backlog", (Guid id, VersionInput input, TasksService service, CancellationToken ct) => service.MoveToBacklogAsync(id, input.ExpectedVersion, ct));
         group.MapPost("/{id:guid}/planning", (Guid id, VersionInput input, TasksService service, CancellationToken ct) => service.ReturnToPlanAsync(id, input.ExpectedVersion, ct));
         group.MapPut("/{id:guid}/status", (Guid id, StatusInput input, TasksService service, CancellationToken ct) => service.SetStatusAsync(id, input.ExpectedVersion, input.Status, ct));
-        group.MapPost("/{id:guid}/archive", (Guid id, VersionInput input, TasksService service, CancellationToken ct) => service.ArchiveAsync(id, input.ExpectedVersion, ct));
+        group.MapPost("/{id:guid}/archive", (Guid id, ArchiveInput input, TasksService service, CancellationToken ct) => service.ArchiveAsync(id, input.ExpectedVersion, ct, input.PreserveSectionWhenEmpty));
         group.MapPost("/{id:guid}/restore", (Guid id, VersionInput input, TasksService service, CancellationToken ct) => service.RestoreAsync(id, input.ExpectedVersion, null, ct));
         group.MapDelete("/{id:guid}", async (Guid id, [FromBody] VersionInput input, TasksService service, CancellationToken ct) => { await service.DeleteAsync(id, input.ExpectedVersion, ct); return Results.NoContent(); });
         group.MapPut("/order", (TaskOrderInput input, TasksService service, CancellationToken ct) => service.ReorderTasksAsync(input.Location, input.SectionId, input.Items, ct, input.ProjectId, input.MilestoneId, input.FeatureId, input.PlanningDisplayOrder));
@@ -51,6 +51,7 @@ public static class TasksApiModule
     public sealed record TaskSectionEdit(long ExpectedVersion, Guid SectionId);
     public sealed record TaskPlanningLinkEdit(long ExpectedVersion, Guid ProjectId, Guid MilestoneId, Guid FeatureId, bool MoveToPlanning);
     public sealed record VersionInput(long ExpectedVersion);
+    public sealed record ArchiveInput(long ExpectedVersion, bool PreserveSectionWhenEmpty = false);
     public sealed record StatusInput(long ExpectedVersion, TaskWorkStatus Status);
     public sealed record TaskOrderInput(TaskLocation Location, Guid? SectionId, IReadOnlyList<TaskOrderItem> Items, Guid? ProjectId = null, Guid? MilestoneId = null, Guid? FeatureId = null, bool PlanningDisplayOrder = false);
     public sealed record TaskSectionCreate(string Name, TaskLocation Location);

@@ -22,7 +22,9 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
             : db.Set<TaskItem>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
     }
 
-    public Task SaveAsync(TaskItem item, CancellationToken ct) => transaction.ExecuteAsync(async token =>
+    public Task SaveAsync(TaskItem item, CancellationToken ct) => SaveAsync(item, ct, false);
+
+    public Task SaveAsync(TaskItem item, CancellationToken ct, bool preserveSectionWhenEmpty) => transaction.ExecuteAsync(async token =>
     {
         var previousSectionId = item.Version > 1
             ? await db.Set<TaskItem>().AsNoTracking().Where(x => x.Id == item.Id).Select(x => x.SectionId).SingleOrDefaultAsync(token)
@@ -45,7 +47,7 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
         var path = item.ProjectId is { } projectId ? await paths.ReadPathAsync(new(projectId, item.MilestoneId, item.FeatureId), token) : null;
         var payload = Payload(item, path?.Path);
         await journal.AppendAsync(new EntitySnapshot("tasks.task", item.Id, item.Version, false, JsonSerializer.SerializeToElement(payload)), token);
-        if (previousSectionId is { } oldSectionId && item.SectionId != previousSectionId)
+        if (!preserveSectionWhenEmpty && previousSectionId is { } oldSectionId && item.SectionId != previousSectionId)
             await DeleteEmptySectionAsync(oldSectionId, token);
     }, ct);
 

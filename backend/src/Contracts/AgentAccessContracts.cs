@@ -126,7 +126,8 @@ public sealed record TaskMutation(
     string? Bucket = null,
     IReadOnlyList<VersionedEntityId>? Order = null,
     int? Position = null,
-    string? ArchivedSectionName = null);
+    string? ArchivedSectionName = null,
+    bool PreserveSectionWhenEmpty = false);
 
 public sealed record TaskMutationResult(bool Applied, TaskEntityState? Current, string? ConflictReason);
 
