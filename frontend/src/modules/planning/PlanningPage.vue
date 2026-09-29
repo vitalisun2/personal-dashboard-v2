@@ -769,7 +769,7 @@ onBeforeUnmount(() => {
           </template>
           <template v-else>
             <div v-for="item in milestone.features" :key="item.id" class="planning-feature-row planning-context-row" :class="{ 'context-active': isContextActive('feature', item.id) }" @pointerdown="rowPointerDown($event, 'feature', item.id)" @pointermove="rowPointerMove" @pointerup="rowPointerUp" @pointercancel="rowPointerUp" @contextmenu.prevent="rowContextMenu($event, 'feature', item.id)">
-              <button class="planning-row-main" type="button" @click="openFeature(item.id)"><span>{{ item.title }}</span></button>
+              <button class="planning-row-main" type="button" @click="openFeature(item.id)"><span v-if="statusName(item.status) === 'done'" class="planning-feature-completed planning-feature-check" aria-hidden="true">✓</span><span>{{ item.title }}</span></button>
               <span class="planning-chevron-slot"><span class="planning-row-arrow" aria-hidden="true">›</span><button class="planning-menu-trigger" type="button" aria-haspopup="menu" :aria-expanded="isContextActive('feature', item.id) ? 'true' : 'false'" :aria-label="`Действия с «${item.title}»`" @click.stop="toggleContextMenu($event, 'feature', item.id)">⋯</button></span>
             </div>
           </template>

@@ -428,6 +428,7 @@ button { border: 0; background: transparent; cursor: pointer; }
 .phone-shell .planning-feature-row.planning-context-row{grid-template-columns:minmax(0,1fr) 32px}
 .phone-shell .planning-feature-row .planning-row-main{grid-column:1;display:flex;align-items:center;padding-left:8px}
 .phone-shell .planning-feature-row .planning-row-main>span{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:inherit;font-size:14px;font-weight:620;text-align:left;padding-right:0}
+.phone-shell .planning-feature-row .planning-row-main>.planning-feature-check{flex:none;overflow:visible;color:var(--success);font-size:14px;font-weight:700;padding-right:0}
 .phone-shell .planning-context-row .planning-chevron-slot{grid-column:-2/-1}
 .phone-shell .planning-chevron-slot{width:32px;height:40px;display:grid;place-items:center;position:relative;justify-self:end}
 .phone-shell .planning-chevron-slot>.planning-row-arrow{grid-area:1/1;color:var(--muted);font-size:18px;text-align:center;transition:opacity .13s ease}
