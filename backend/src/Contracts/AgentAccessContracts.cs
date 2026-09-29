@@ -110,7 +110,8 @@ public sealed record TaskEntityState(
     string? Bucket,
     int Position,
     string? ArchivedSectionName = null,
-    int PlanningPosition = 0);
+    int PlanningPosition = 0,
+    bool IsBacklogVisible = true);
 
 public sealed record TaskMutation(
     TaskMutationKind Operation,
@@ -126,8 +127,7 @@ public sealed record TaskMutation(
     string? Bucket = null,
     IReadOnlyList<VersionedEntityId>? Order = null,
     int? Position = null,
-    string? ArchivedSectionName = null,
-    bool PreserveSectionWhenEmpty = false);
+    string? ArchivedSectionName = null);
 
 public sealed record TaskMutationResult(bool Applied, TaskEntityState? Current, string? ConflictReason);
 

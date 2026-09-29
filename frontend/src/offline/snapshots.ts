@@ -8,7 +8,7 @@ const groupIds = ['3be630ad-c973-4cb2-b8d3-6374d87c8355', '83b28844-904d-42fd-96
 /** Warm every editable section, including lists the user has never opened. */
 export async function refreshOfflineSnapshots(store: IndexedDbOfflineStore): Promise<boolean> {
   const urls = ['/api/v2/planning/projects?includeArchived=true', '/api/v2/tasks',
-    '/api/v2/tasks/sections?location=Backlog', '/api/v2/tasks/sections?location=Today',
+    '/api/v2/tasks/sections/all',
     '/api/v2/tasks/groups/order?location=Backlog', '/api/v2/tasks/groups/order?location=Today']
   const data = await Promise.all(urls.map(async url => {
     const response = await fetchWithTimeout(url, { cache: 'no-store' })
@@ -25,7 +25,7 @@ export async function refreshOfflineSnapshots(store: IndexedDbOfflineStore): Pro
     for (const milestone of project.milestones ?? []) add('planning.feature', milestone.features ?? [])
   }
   add('tasks.task', data[1])
-  add('tasks.section', [...data[2], ...data[3]])
-  groupIds.forEach((id, index) => entities.push({ type: 'tasks.groupOrder', id, version: data[index + 4].version, payload: { keys: data[index + 4].keys }, deleted: false }))
+  add('tasks.section', data[2])
+  groupIds.forEach((id, index) => entities.push({ type: 'tasks.groupOrder', id, version: data[index + 3].version, payload: { keys: data[index + 3].keys }, deleted: false }))
   return store.replaceViewSnapshots(entities)
 }

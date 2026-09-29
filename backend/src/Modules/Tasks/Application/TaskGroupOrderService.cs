@@ -48,9 +48,12 @@ public sealed class TaskGroupOrderService(ITasksRepository tasks, ITaskGroupOrde
 
     private async Task<IReadOnlyList<string>> CurrentKeysAsync(TaskLocation location, CancellationToken ct)
     {
-        var sections = await tasks.ListSectionsAsync(location, ct);
+        var sections = await tasks.ListSectionsAsync(TaskLocation.Backlog, ct);
         var items = await tasks.ListAsync(location, ct);
-        return sections.OrderBy(x => x.Position).Select(x => $"section:{x.Id}")
+        var sectionIds = location == TaskLocation.Backlog
+            ? sections.Where(section => section.IsBacklogVisible).Select(section => section.Id).ToHashSet()
+            : items.Where(item => item.SectionId is not null).Select(item => item.SectionId!.Value).ToHashSet();
+        return sections.Where(section => sectionIds.Contains(section.Id)).OrderBy(x => x.Position).Select(x => $"section:{x.Id}")
             .Concat(items.Where(x => x.ProjectId is not null).Select(x => x.ProjectId!.Value).Distinct().Select(id => $"project:{id}"))
             .ToArray();
     }

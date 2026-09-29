@@ -32,17 +32,19 @@ public static class TasksApiModule
         group.MapPost("/{id:guid}/backlog", (Guid id, VersionInput input, TasksService service, CancellationToken ct) => service.MoveToBacklogAsync(id, input.ExpectedVersion, ct));
         group.MapPost("/{id:guid}/planning", (Guid id, VersionInput input, TasksService service, CancellationToken ct) => service.ReturnToPlanAsync(id, input.ExpectedVersion, ct));
         group.MapPut("/{id:guid}/status", (Guid id, StatusInput input, TasksService service, CancellationToken ct) => service.SetStatusAsync(id, input.ExpectedVersion, input.Status, ct));
-        group.MapPost("/{id:guid}/archive", (Guid id, ArchiveInput input, TasksService service, CancellationToken ct) => service.ArchiveAsync(id, input.ExpectedVersion, ct, input.PreserveSectionWhenEmpty));
+        group.MapPost("/{id:guid}/archive", (Guid id, ArchiveInput input, TasksService service, CancellationToken ct) => service.ArchiveAsync(id, input.ExpectedVersion, ct));
         group.MapPost("/{id:guid}/restore", (Guid id, VersionInput input, TasksService service, CancellationToken ct) => service.RestoreAsync(id, input.ExpectedVersion, null, ct));
         group.MapDelete("/{id:guid}", async (Guid id, [FromBody] VersionInput input, TasksService service, CancellationToken ct) => { await service.DeleteAsync(id, input.ExpectedVersion, ct); return Results.NoContent(); });
         group.MapPut("/order", (TaskOrderInput input, TasksService service, CancellationToken ct) => service.ReorderTasksAsync(input.Location, input.SectionId, input.Items, ct, input.ProjectId, input.MilestoneId, input.FeatureId, input.PlanningDisplayOrder));
         group.MapGet("/sections", (TaskLocation location, TasksService service, CancellationToken ct) => service.SectionsAsync(location, ct));
+        group.MapGet("/sections/all", (TasksService service, CancellationToken ct) => service.AllSectionsAsync(ct));
         group.MapPost("/sections", (TaskSectionCreate input, TasksService service, CancellationToken ct) => service.CreateSectionAsync(input.Name, input.Location, ct));
         group.MapPut("/sections/{id:guid}", (Guid id, TaskSectionEditInput input, TasksService service, CancellationToken ct) => service.RenameSectionAsync(id, input.ExpectedVersion, input.Name, ct));
         group.MapPut("/sections/order", (TaskSectionOrderInput input, TasksService service, CancellationToken ct) => service.ReorderSectionsAsync(input.Location, input.ExpectedVersion, input.Ids, ct));
         group.MapGet("/groups/order", (TaskLocation location, TaskGroupOrderService service, CancellationToken ct) => service.GetAsync(location, ct));
         group.MapPut("/groups/order", (TaskGroupOrderInput input, TaskGroupOrderService service, CancellationToken ct) => service.ReorderAsync(input.Location, input.ExpectedVersion, input.Keys, ct));
         group.MapDelete("/sections/{id:guid}", async (Guid id, [FromBody] VersionInput input, TasksService service, CancellationToken ct) => { await service.DeleteSectionAsync(id, input.ExpectedVersion, ct); return Results.NoContent(); });
+        group.MapDelete("/sections/{id:guid}/archive", async (Guid id, [FromBody] VersionInput input, TasksService service, CancellationToken ct) => { await service.DeleteArchivedSectionAsync(id, input.ExpectedVersion, ct); return Results.NoContent(); });
         return endpoints;
     }
 
@@ -51,7 +53,7 @@ public static class TasksApiModule
     public sealed record TaskSectionEdit(long ExpectedVersion, Guid SectionId);
     public sealed record TaskPlanningLinkEdit(long ExpectedVersion, Guid ProjectId, Guid MilestoneId, Guid FeatureId, bool MoveToPlanning);
     public sealed record VersionInput(long ExpectedVersion);
-    public sealed record ArchiveInput(long ExpectedVersion, bool PreserveSectionWhenEmpty = false);
+    public sealed record ArchiveInput(long ExpectedVersion);
     public sealed record StatusInput(long ExpectedVersion, TaskWorkStatus Status);
     public sealed record TaskOrderInput(TaskLocation Location, Guid? SectionId, IReadOnlyList<TaskOrderItem> Items, Guid? ProjectId = null, Guid? MilestoneId = null, Guid? FeatureId = null, bool PlanningDisplayOrder = false);
     public sealed record TaskSectionCreate(string Name, TaskLocation Location);

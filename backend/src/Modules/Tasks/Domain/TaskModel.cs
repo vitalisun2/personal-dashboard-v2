@@ -55,8 +55,8 @@ public sealed class TaskItem
         Touch();
     }
     public void SetWorkStatus(TaskWorkStatus status) { if (Location != TaskLocation.Today) throw new InvalidOperationException("Work status applies only to Today tasks."); WorkStatus = status; Touch(); }
-    public void Archive(string? sectionName = null) { Location = TaskLocation.Archived; ArchivedSectionName = sectionName ?? ArchivedSectionName; SectionId = null; Touch(); }
-    public void Restore(Guid? sectionId) { if (Location != TaskLocation.Archived) throw new InvalidOperationException("Only archived tasks can be restored."); Location = TaskLocation.Backlog; SectionId = ProjectId is null ? sectionId : null; WorkStatus = TaskWorkStatus.New; Touch(); }
+    public void Archive(string? sectionName = null) { Location = TaskLocation.Archived; ArchivedSectionName = sectionName ?? ArchivedSectionName; Touch(); }
+    public void Restore(Guid? sectionId) { if (Location != TaskLocation.Archived) throw new InvalidOperationException("Only archived tasks can be restored."); Location = TaskLocation.Backlog; SectionId = ProjectId is null ? (SectionId ?? sectionId) : null; WorkStatus = TaskWorkStatus.New; Touch(); }
     // Conflict resolution replaces one entity after validating its entire final state.
     public void Replace(string title, string? description, Guid? projectId, Guid? milestoneId, Guid? featureId,
         TaskLocation location, TaskWorkStatus status, Guid? sectionId, int position, string? archivedSectionName)
@@ -65,8 +65,8 @@ public sealed class TaskItem
         if (!Enum.IsDefined(location) || !Enum.IsDefined(status)) throw new ArgumentException("Invalid task placement or work status.");
         if ((projectId is null) != (milestoneId is null) || (milestoneId is null) != (featureId is null)) throw new ArgumentException("A planning link requires project, milestone and feature ids together.");
         if (location == TaskLocation.Planned && featureId is null) throw new ArgumentException("Planned placement requires a linked feature.");
-        if ((projectId is not null || location is TaskLocation.Planned or TaskLocation.Archived) && sectionId is not null) throw new ArgumentException("Linked, planned and archived tasks cannot belong to a task section.");
-        if (projectId is null && (location is TaskLocation.Backlog or TaskLocation.Today) && sectionId is null) throw new ArgumentException("Standalone active tasks require a section.");
+        if ((projectId is not null || location == TaskLocation.Planned) && sectionId is not null) throw new ArgumentException("Linked and planned tasks cannot belong to a task section.");
+        if (projectId is null && (location is TaskLocation.Backlog or TaskLocation.Today) && sectionId is null) throw new ArgumentException("Active standalone tasks require a section.");
         if ((location is TaskLocation.Backlog or TaskLocation.Planned) && status != TaskWorkStatus.New) throw new ArgumentException("Backlog and planned tasks must have New work status.");
         if (position < 0) throw new ArgumentException("Task position cannot be negative.");
         Title = normalizedTitle; Description = description?.Trim() ?? "";
@@ -85,12 +85,15 @@ public sealed class TaskItem
 public sealed class TaskSection
 {
     private TaskSection() { }
-    public TaskSection(string name, TaskLocation location, Guid? id = null, int position = 0) { if (location is not (TaskLocation.Backlog or TaskLocation.Today)) throw new ArgumentException("Sections belong to Backlog or Today."); Id = id ?? Guid.NewGuid(); Name = TaskItem.Required(name); Location = location; Position = position; }
+    public TaskSection(string name, TaskLocation location, Guid? id = null, int position = 0) { if (location is not (TaskLocation.Backlog or TaskLocation.Today)) throw new ArgumentException("Sections belong to Backlog or Today."); Id = id ?? Guid.NewGuid(); Name = TaskItem.Required(name); Location = TaskLocation.Backlog; Position = position; }
     public Guid Id { get; private set; }
     public string Name { get; private set; } = "";
     public TaskLocation Location { get; private set; }
     public int Position { get; private set; }
     public long Version { get; private set; } = 1;
+    public bool IsBacklogVisible { get; private set; } = true;
     public void Rename(string name) { Name = TaskItem.Required(name); Version++; }
     public void Reorder(int position) { Position = position; Version++; }
+    public void HideFromBacklog() { if (!IsBacklogVisible) return; IsBacklogVisible = false; Version++; }
+    public void ShowInBacklog() { if (IsBacklogVisible) return; IsBacklogVisible = true; Version++; }
 }

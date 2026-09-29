@@ -53,6 +53,7 @@ public sealed class TaskSectionConfiguration : IEntityTypeConfiguration<TaskSect
         builder.Property(x => x.Location).HasConversion<string>().HasMaxLength(20).IsRequired();
         builder.Property(x => x.Position).IsRequired();
         builder.Property(x => x.Version).IsConcurrencyToken();
+        builder.Property(x => x.IsBacklogVisible).HasDefaultValue(true).IsRequired();
         builder.HasIndex(x => new { x.Location, x.Name }).IsUnique();
     }
 }

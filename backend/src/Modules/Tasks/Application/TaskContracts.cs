@@ -4,7 +4,7 @@ using PersonalDashboard.V2.Contracts.Planning;
 namespace PersonalDashboard.V2.Tasks.Application;
 
 public sealed record TaskView(Guid Id, string Title, string Description, Guid? ProjectId, Guid? MilestoneId, Guid? FeatureId, TaskLocation Location, TaskWorkStatus WorkStatus, Guid? SectionId, int Position, long Version, string? ArchivedSectionName = null, int PlanningPosition = 0);
-public sealed record TaskSectionView(Guid Id, string Name, TaskLocation Location, int Position, long Version);
+public sealed record TaskSectionView(Guid Id, string Name, TaskLocation Location, int Position, long Version, bool IsBacklogVisible = true);
 public sealed record TaskOrderItem(Guid Id, long ExpectedVersion);
 
 public interface ITasksRepository
@@ -12,7 +12,6 @@ public interface ITasksRepository
     Task<IReadOnlyList<TaskItem>> ListAsync(TaskLocation? location, CancellationToken ct);
     Task<TaskItem?> GetAsync(Guid id, CancellationToken ct);
     Task SaveAsync(TaskItem item, CancellationToken ct);
-    Task SaveAsync(TaskItem item, CancellationToken ct, bool preserveSectionWhenEmpty) => SaveAsync(item, ct);
     Task DeleteAsync(Guid id, CancellationToken ct);
     Task<IReadOnlyList<TaskSection>> ListSectionsAsync(TaskLocation location, CancellationToken ct);
     Task SaveSectionAsync(TaskSection section, CancellationToken ct);
@@ -45,7 +44,8 @@ public sealed class TasksService(ITasksRepository repository, PersonalDashboard.
         {
             if (item.ProjectId is not null || item.Location is not (TaskLocation.Backlog or TaskLocation.Today)) throw new InvalidOperationException("Only standalone Backlog or Today tasks have editable sections.");
             var section = await FindSection(sectionId.Value, ct);
-            if (section.Location != item.Location) throw new ArgumentException("Task section must match its current bucket.");
+            if (section.Location != TaskLocation.Backlog) throw new ArgumentException("Task section is invalid.");
+            if (item.Location == TaskLocation.Backlog && !section.IsBacklogVisible) throw new ArgumentException("Choose a section visible in Backlog.");
         }
         item.Update(title, description, sectionId); await repository.SaveAsync(item, ct); return Map(item);
     }
@@ -54,7 +54,8 @@ public sealed class TasksService(ITasksRepository repository, PersonalDashboard.
     {
         var item = await Required(id, ct); Check(item.Version, expectedVersion);
         if (item.ProjectId is not null || item.Location is not (TaskLocation.Backlog or TaskLocation.Today)) throw new InvalidOperationException("Only standalone Backlog or Today tasks have editable sections.");
-        var section = await FindSection(sectionId, ct); if (section.Location != item.Location) throw new ArgumentException("Task section must match its current bucket.");
+        var section = await FindSection(sectionId, ct);
+        if (item.Location == TaskLocation.Backlog && !section.IsBacklogVisible) throw new ArgumentException("Choose a section visible in Backlog.");
         item.SetSection(sectionId); await repository.SaveAsync(item, ct); return Map(item);
     }
 
@@ -67,7 +68,7 @@ public sealed class TasksService(ITasksRepository repository, PersonalDashboard.
             if (sectionId is { } section)
             {
                 var destination = await FindSection(section, token);
-                if (destination.Location != location) throw new ArgumentException("Task section must match its destination bucket.");
+        if (destination.Location != TaskLocation.Backlog || location == TaskLocation.Backlog && !destination.IsBacklogVisible) throw new ArgumentException("Task section is invalid.");
             }
             item.Replace(title, description, link?.ProjectId, link?.MilestoneId, link?.FeatureId, location, status,
                 sectionId, position ?? item.Position, archivedSectionName);
@@ -122,37 +123,76 @@ public sealed class TasksService(ITasksRepository repository, PersonalDashboard.
 
     public async Task<TaskView> MoveToTodayAsync(Guid id, long expectedVersion, CancellationToken ct)
     {
-        var item = await Required(id, ct); Check(item.Version, expectedVersion); Guid? sectionId = item.ProjectId is null ? await ResolveSection(TaskLocation.Today, null, item.SectionId, ct) : null; item.MoveToToday(sectionId); await repository.SaveAsync(item, ct); return Map(item);
+        var item = await Required(id, ct); Check(item.Version, expectedVersion); Guid? sectionId = item.ProjectId is null ? item.SectionId ?? await ResolveSection(TaskLocation.Backlog, null, null, ct) : null; item.MoveToToday(sectionId); await repository.SaveAsync(item, ct); return Map(item);
     }
-    public async Task<TaskView> MoveToBacklogAsync(Guid id, long expectedVersion, CancellationToken ct)
+    public Task<TaskView> MoveToBacklogAsync(Guid id, long expectedVersion, CancellationToken ct) => transaction.ExecuteAsync(async token =>
     {
-        var item = await Required(id, ct); Check(item.Version, expectedVersion); Guid? sectionId = item.ProjectId is null ? await ResolveSection(TaskLocation.Backlog, null, item.SectionId, ct) : null; item.MoveToBacklog(sectionId); await repository.SaveAsync(item, ct); return Map(item);
-    }
+        var item = await Required(id, token); Check(item.Version, expectedVersion);
+        Guid? sectionId = item.ProjectId is null ? item.SectionId ?? await ResolveSection(TaskLocation.Backlog, null, null, token) : null;
+        item.MoveToBacklog(sectionId);
+        var section = sectionId is { } sectionKey ? await FindSection(sectionKey, token) : null;
+        var sectionWasHidden = section is { IsBacklogVisible: false };
+        section?.ShowInBacklog();
+        await repository.SaveAsync(item, token);
+        if (sectionWasHidden) await repository.SaveSectionAsync(section!, token);
+        return Map(item);
+    }, ct);
     public Task<TaskView> ReturnToPlanAsync(Guid id, long expectedVersion, CancellationToken ct) => Mutate(id, expectedVersion, x => x.ReturnToPlan(), ct);
     public Task<TaskView> SetStatusAsync(Guid id, long expectedVersion, TaskWorkStatus status, CancellationToken ct) => Mutate(id, expectedVersion, x => x.SetWorkStatus(status), ct);
-    public async Task<TaskView> ArchiveAsync(Guid id, long expectedVersion, CancellationToken ct, bool preserveSectionWhenEmpty = false)
+    public async Task<TaskView> ArchiveAsync(Guid id, long expectedVersion, CancellationToken ct)
     {
         var item = await Required(id, ct); Check(item.Version, expectedVersion);
         var sectionName = item.SectionId is { } sectionId ? (await FindSection(sectionId, ct)).Name : null;
-        item.Archive(sectionName); await repository.SaveAsync(item, ct, preserveSectionWhenEmpty); return Map(item);
+        item.Archive(sectionName); await repository.SaveAsync(item, ct); return Map(item);
     }
-    public async Task<TaskView> RestoreAsync(Guid id, long expectedVersion, Guid? sectionId, CancellationToken ct)
+    public Task<TaskView> RestoreAsync(Guid id, long expectedVersion, Guid? sectionId, CancellationToken ct) => transaction.ExecuteAsync(async token =>
     {
-        var item = await Required(id, ct); Check(item.Version, expectedVersion);
-        if (item.ProjectId is null) sectionId = await ResolveSection(TaskLocation.Backlog, sectionId, item.SectionId, ct, item.ArchivedSectionName);
-        item.Restore(sectionId); await repository.SaveAsync(item, ct); return Map(item);
-    }
+        var item = await Required(id, token); Check(item.Version, expectedVersion);
+        if (item.ProjectId is null) sectionId = item.SectionId ?? await ResolveSection(TaskLocation.Backlog, sectionId, null, token, item.ArchivedSectionName);
+        item.Restore(sectionId);
+        var section = sectionId is { } restoredSection ? await FindSection(restoredSection, token) : null;
+        var sectionWasHidden = section is { IsBacklogVisible: false };
+        section?.ShowInBacklog();
+        await repository.SaveAsync(item, token);
+        if (sectionWasHidden) await repository.SaveSectionAsync(section!, token);
+        return Map(item);
+    }, ct);
 
     public async Task DeleteAsync(Guid id, long expectedVersion, CancellationToken ct) { var item = await Required(id, ct); Check(item.Version, expectedVersion); await repository.DeleteAsync(id, ct); }
 
     public async Task<IReadOnlyList<TaskSectionView>> SectionsAsync(TaskLocation location, CancellationToken ct)
     {
-        EnsureSectionLocation(location); return (await repository.ListSectionsAsync(location, ct)).OrderBy(s => s.Position).Select(Map).ToArray();
+        if (location is not (TaskLocation.Backlog or TaskLocation.Today or TaskLocation.Archived)) throw new ArgumentException("Sections are available for Backlog, Today or Archived.");
+        var sections = await repository.ListSectionsAsync(TaskLocation.Backlog, ct);
+        if (location == TaskLocation.Backlog) return sections.Where(s => s.IsBacklogVisible).OrderBy(s => s.Position).Select(s => Map(s, location)).ToArray();
+        var referencedIds = (await repository.ListAsync(location, ct)).Where(task => task.SectionId is not null).Select(task => task.SectionId!.Value).ToHashSet();
+        return sections.Where(section => referencedIds.Contains(section.Id)).OrderBy(s => s.Position).Select(s => Map(s, location)).ToArray();
     }
+
+    public async Task<IReadOnlyList<TaskSectionView>> AllSectionsAsync(CancellationToken ct) =>
+        (await repository.ListSectionsAsync(TaskLocation.Backlog, ct)).OrderBy(section => section.Position).Select(section => Map(section, TaskLocation.Backlog)).ToArray();
 
     public async Task<TaskSectionView> CreateSectionAsync(string name, TaskLocation location, CancellationToken ct, Guid? id = null)
     {
-        EnsureSectionLocation(location); var sections = await repository.ListSectionsAsync(location, ct); var section = new TaskSection(name, location, id, sections.Count); await repository.SaveSectionAsync(section, ct); return Map(section);
+        EnsureSectionLocation(location);
+        var sections = await repository.ListSectionsAsync(TaskLocation.Backlog, ct);
+        var section = new TaskSection(name, TaskLocation.Backlog, id, sections.Count);
+        var normalizedName = section.Name;
+        var existing = sections.FirstOrDefault(candidate => candidate.Name == normalizedName);
+        if (existing is not null)
+        {
+            if (id is { } requestedId && requestedId != existing.Id)
+                throw new InvalidOperationException($"A section named '{normalizedName}' already exists.");
+            if (!existing.IsBacklogVisible)
+            {
+                existing.ShowInBacklog();
+                await repository.SaveSectionAsync(existing, ct);
+            }
+            return Map(existing, location);
+        }
+
+        await repository.SaveSectionAsync(section, ct);
+        return Map(section, location);
     }
 
     public async Task<TaskSectionView> RenameSectionAsync(Guid id, long expectedVersion, string name, CancellationToken ct)
@@ -164,7 +204,7 @@ public sealed class TasksService(ITasksRepository repository, PersonalDashboard.
     {
         return await transaction.ExecuteAsync(async token =>
         {
-            EnsureSectionLocation(location); var list = (await repository.ListSectionsAsync(location, token)).OrderBy(s => s.Position).ToList(); Check(list.Count == 0 ? 0 : list.Max(s => s.Version), expectedVersion);
+            EnsureSectionLocation(location); var list = (await repository.ListSectionsAsync(TaskLocation.Backlog, token)).Where(s => s.IsBacklogVisible).OrderBy(s => s.Position).ToList(); Check(list.Count == 0 ? 0 : list.Max(s => s.Version), expectedVersion);
             if (ids.Count != list.Count || ids.Distinct().Count() != ids.Count || !ids.ToHashSet().SetEquals(list.Select(s => s.Id))) throw new ArgumentException("Order must include every current section exactly once.");
             for (var i = 0; i < ids.Count; i++) { var section = list.Single(x => x.Id == ids[i]); section.Reorder(i); await repository.SaveSectionAsync(section, token); }
             return await SectionsAsync(location, token);
@@ -173,9 +213,31 @@ public sealed class TasksService(ITasksRepository repository, PersonalDashboard.
 
     public async Task DeleteSectionAsync(Guid id, long expectedVersion, CancellationToken ct)
     {
-        var section = await FindSection(id, ct); Check(section.Version, expectedVersion);
-        if ((await repository.ListAsync(section.Location, ct)).Any(task => task.SectionId == id)) throw new InvalidOperationException("Move the section's tasks before deleting it.");
-        await repository.DeleteSectionAsync(id, ct);
+        await transaction.ExecuteAsync(async token =>
+        {
+            var section = await FindSection(id, token); Check(section.Version, expectedVersion);
+            if (!section.IsBacklogVisible) throw new InvalidOperationException("Only a section visible in Backlog can be removed from Backlog.");
+            var backlogTasks = (await repository.ListAsync(TaskLocation.Backlog, token)).Where(task => task.SectionId == id).ToArray();
+            foreach (var task in backlogTasks) await ArchiveAsync(task.Id, task.Version, token);
+            section.HideFromBacklog();
+            var hasTasks = (await repository.ListAsync(null, token)).Any(task => task.SectionId == id);
+            if (!hasTasks) await repository.DeleteSectionAsync(id, token);
+            else await repository.SaveSectionAsync(section, token);
+        }, ct);
+    }
+
+    public async Task DeleteArchivedSectionAsync(Guid id, long expectedVersion, CancellationToken ct)
+    {
+        await transaction.ExecuteAsync(async token =>
+        {
+            var section = await FindSection(id, token); Check(section.Version, expectedVersion);
+            var tasks = (await repository.ListAsync(null, token)).Where(task => task.SectionId == id).ToArray();
+            if (tasks.Any(task => task.Location is TaskLocation.Backlog or TaskLocation.Today)) throw new InvalidOperationException("Move active tasks before deleting the archived section.");
+            if (!tasks.Any(task => task.Location == TaskLocation.Archived)) throw new InvalidOperationException("The section has no archived tasks to delete.");
+            foreach (var task in tasks) await repository.DeleteAsync(task.Id, token);
+            if ((await repository.ListSectionsAsync(TaskLocation.Backlog, token)).Any(item => item.Id == id))
+                await repository.DeleteSectionAsync(id, token);
+        }, ct);
     }
 
     private async Task<TaskView> Mutate(Guid id, long version, Action<TaskItem> action, CancellationToken ct)
@@ -183,20 +245,28 @@ public sealed class TasksService(ITasksRepository repository, PersonalDashboard.
         var item = await Required(id, ct); Check(item.Version, version); action(item); await repository.SaveAsync(item, ct); return Map(item);
     }
     private async Task<TaskItem> Required(Guid id, CancellationToken ct) => await repository.GetAsync(id, ct) ?? throw new KeyNotFoundException($"Task {id} was not found.");
-    private async Task<TaskSection> FindSection(Guid id, CancellationToken ct) { foreach (var location in new[] { TaskLocation.Backlog, TaskLocation.Today }) { var section = (await repository.ListSectionsAsync(location, ct)).SingleOrDefault(x => x.Id == id); if (section is not null) return section; } throw new KeyNotFoundException($"Section {id} was not found."); }
+    private async Task<TaskSection> FindSection(Guid id, CancellationToken ct) => (await repository.ListSectionsAsync(TaskLocation.Backlog, ct)).SingleOrDefault(x => x.Id == id) ?? throw new KeyNotFoundException($"Section {id} was not found.");
     private async Task<Guid> ResolveSection(TaskLocation destination, Guid? requestedId, Guid? previousId, CancellationToken ct, string? previousName = null)
     {
-        var sections = (await repository.ListSectionsAsync(destination, ct)).OrderBy(x => x.Position).ToArray();
-        if (requestedId is { } wanted) return sections.SingleOrDefault(x => x.Id == wanted)?.Id ?? throw new ArgumentException("Section does not belong to the destination bucket.");
+        var sections = (await repository.ListSectionsAsync(TaskLocation.Backlog, ct)).OrderBy(x => x.Position).ToArray();
+        if (requestedId is { } wanted)
+        {
+            var requested = sections.SingleOrDefault(x => x.Id == wanted) ?? throw new ArgumentException("Section does not exist.");
+            if (destination == TaskLocation.Backlog && !requested.IsBacklogVisible) throw new ArgumentException("Choose a section visible in Backlog.");
+            return requested.Id;
+        }
         if (previousId is { } oldId) { try { previousName = (await FindSection(oldId, ct)).Name; } catch (KeyNotFoundException) { } }
         if (previousName is not null && sections.FirstOrDefault(x => x.Name == previousName) is { } match) return match.Id;
-        if (sections.FirstOrDefault() is { } first) return first.Id;
-        return (await CreateSectionAsync(previousName ?? "Общее", destination, ct)).Id;
+        if ((destination == TaskLocation.Backlog ? sections.FirstOrDefault(x => x.IsBacklogVisible) : sections.FirstOrDefault()) is { } first) return first.Id;
+        var baseName = previousName ?? "Общее";
+        var newName = baseName;
+        for (var suffix = 2; sections.Any(section => section.Name == newName); suffix++) newName = $"{baseName} {suffix}";
+        return (await CreateSectionAsync(newName, TaskLocation.Backlog, ct)).Id;
     }
     private static void Check(long actual, long expected) { if (actual != expected) throw new TaskVersionConflictException(actual, expected); }
-    private static void EnsureSectionLocation(TaskLocation location) { if (location is not (TaskLocation.Backlog or TaskLocation.Today)) throw new ArgumentException("Sections belong to Backlog or Today."); }
+    private static void EnsureSectionLocation(TaskLocation location) { if (location != TaskLocation.Backlog) throw new ArgumentException("Sections can only be created in Backlog."); }
     private static TaskView Map(TaskItem x) => new(x.Id, x.Title, x.Description, x.ProjectId, x.MilestoneId, x.FeatureId, x.Location, x.WorkStatus, x.SectionId, x.Position, x.Version, x.ArchivedSectionName, x.PlanningPosition);
-    private static TaskSectionView Map(TaskSection x) => new(x.Id, x.Name, x.Location, x.Position, x.Version);
+    private static TaskSectionView Map(TaskSection x, TaskLocation? location = null) => new(x.Id, x.Name, location ?? x.Location, x.Position, x.Version, x.IsBacklogVisible);
 }
 
 public sealed class InvalidPlanningLinkException() : Exception("The project, milestone and feature link is invalid.");

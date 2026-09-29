@@ -25,7 +25,7 @@ public sealed class TasksAgentAccess(TasksService service) : ITasksAgentAccess
             var item = await service.GetAsync(id, ct);
             return item is null ? null : State(item);
         }
-        foreach (var bucket in new[] { TaskLocation.Backlog, TaskLocation.Today })
+        foreach (var bucket in new[] { TaskLocation.Backlog, TaskLocation.Today, TaskLocation.Archived })
             if ((await service.SectionsAsync(bucket, ct)).FirstOrDefault(x => x.Id == id) is { } section) return SectionState(section);
         return null;
     }
@@ -51,7 +51,7 @@ public sealed class TasksAgentAccess(TasksService service) : ITasksAgentAccess
                         mutation.Position, mutation.ArchivedSectionName, ct),
                     TaskMutationKind.Move => await Move(mutation, ct),
                     TaskMutationKind.SetWorkStatus => await service.SetStatusAsync(mutation.Id, Version(mutation), Parse<TaskWorkStatus>(mutation.WorkStatus), ct),
-                    TaskMutationKind.Archive => await service.ArchiveAsync(mutation.Id, Version(mutation), ct, mutation.PreserveSectionWhenEmpty),
+                    TaskMutationKind.Archive => await service.ArchiveAsync(mutation.Id, Version(mutation), ct),
                     TaskMutationKind.Restore => await service.RestoreAsync(mutation.Id, Version(mutation), mutation.SectionId, ct),
                     TaskMutationKind.Reorder => await ReorderTask(mutation, ct),
                     _ => throw new ArgumentException("Unsupported task operation.")
@@ -143,12 +143,18 @@ public sealed class TasksAgentAccess(TasksService service) : ITasksAgentAccess
 
     private async Task<TaskMutationResult> ApplySection(TaskMutation m, CancellationToken ct)
     {
-        var bucket = m.Bucket is null ? throw new ArgumentException("Section bucket is required.") : m.Bucket.Equals("today", StringComparison.OrdinalIgnoreCase) ? TaskLocation.Today : m.Bucket.Equals("backlog", StringComparison.OrdinalIgnoreCase) ? TaskLocation.Backlog : throw new ArgumentException("Bucket must be backlog or today.");
+        var bucket = m.Bucket is null ? throw new ArgumentException("Section bucket is required.") : m.Bucket.Equals("today", StringComparison.OrdinalIgnoreCase) ? TaskLocation.Today : m.Bucket.Equals("archived", StringComparison.OrdinalIgnoreCase) ? TaskLocation.Archived : m.Bucket.Equals("backlog", StringComparison.OrdinalIgnoreCase) ? TaskLocation.Backlog : throw new ArgumentException("Bucket must be backlog, today or archived.");
         TaskSectionView? current = null;
-        foreach (var location in new[] { TaskLocation.Backlog, TaskLocation.Today }) current ??= (await service.SectionsAsync(location, ct)).SingleOrDefault(s => s.Id == m.Id);
+        foreach (var location in new[] { TaskLocation.Backlog, TaskLocation.Today, TaskLocation.Archived }) current ??= (await service.SectionsAsync(location, ct)).SingleOrDefault(s => s.Id == m.Id);
         if (m.Operation == TaskMutationKind.Create) current = await service.CreateSectionAsync(m.Title ?? "", bucket, ct, m.Id);
         else if (m.Operation == TaskMutationKind.Update) current = await service.RenameSectionAsync(m.Id, Version(m), m.Title ?? "", ct);
-        else if (m.Operation == TaskMutationKind.Delete) { await service.DeleteSectionAsync(m.Id, Version(m), ct); return new(true, null, null); }
+        else if (m.Operation == TaskMutationKind.Delete)
+        {
+            if (bucket == TaskLocation.Archived) await service.DeleteArchivedSectionAsync(m.Id, Version(m), ct);
+            else if (bucket == TaskLocation.Backlog) await service.DeleteSectionAsync(m.Id, Version(m), ct);
+            else throw new InvalidOperationException("Only Backlog or Archive sections can be removed.");
+            return new(true, await ReadAsync(TaskEntityKind.Section, m.Id, ct), null);
+        }
         else if (m.Operation == TaskMutationKind.Reorder && m.Order is not null)
         {
             var currentSections = await service.SectionsAsync(bucket, ct);
@@ -162,7 +168,7 @@ public sealed class TasksAgentAccess(TasksService service) : ITasksAgentAccess
     private static long Version(TaskMutation m) => m.ExpectedVersion ?? throw new ArgumentException("ExpectedVersion is required.");
     private static T Parse<T>(string? value) where T : struct, Enum => Enum.TryParse<T>(value, true, out var result) ? result : throw new ArgumentException($"Invalid {typeof(T).Name}.");
     private static TaskEntityState State(TaskView x) => new(TaskEntityKind.Task, x.Id, x.Version, x.Title, x.Description, x.ProjectId is null ? null : new(x.ProjectId, x.MilestoneId, x.FeatureId), x.Location.ToString().ToLowerInvariant(), x.WorkStatus.ToString().ToLowerInvariant(), x.SectionId, null, x.Position, x.ArchivedSectionName, x.PlanningPosition);
-    private static TaskEntityState SectionState(TaskSectionView? x) => x is null ? null! : new(TaskEntityKind.Section, x.Id, x.Version, x.Name, null, null, null, null, null, x.Location == TaskLocation.Today ? "today" : "backlog", x.Position);
+    private static TaskEntityState SectionState(TaskSectionView? x) => x is null ? null! : new(TaskEntityKind.Section, x.Id, x.Version, x.Name, null, null, null, null, null, x.Location == TaskLocation.Today ? "today" : x.Location == TaskLocation.Archived ? "archived" : "backlog", x.Position, IsBacklogVisible: x.IsBacklogVisible);
 }
 
 public sealed class TaskSyncMutationHandler(ITasksAgentAccess access) : ISyncMutationHandler
@@ -214,7 +220,7 @@ public sealed class TaskSyncMutationHandler(ITasksAgentAccess access) : ISyncMut
         PropertyNameCaseInsensitive = true,
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
     };
-    internal static PersonalDashboard.V2.Contracts.Changes.EntitySnapshot ToSnapshot(TaskEntityState x) => new(x.Kind == TaskEntityKind.Task ? "tasks.task" : "tasks.section", x.Id, x.Version, false, JsonSerializer.SerializeToElement(new { title = x.Title, body = x.Description, projectId = x.Planning?.ProjectId, milestoneId = x.Planning?.MilestoneId, featureId = x.Planning?.FeatureId, placement = x.Placement, workStatus = x.WorkStatus, sectionId = x.SectionId, archivedSectionName = x.ArchivedSectionName, bucket = x.Bucket, position = x.Position, planningPosition = x.PlanningPosition, path = (string?)null, url = $"/tasks/{x.Id}" }));
+    internal static PersonalDashboard.V2.Contracts.Changes.EntitySnapshot ToSnapshot(TaskEntityState x) => new(x.Kind == TaskEntityKind.Task ? "tasks.task" : "tasks.section", x.Id, x.Version, false, JsonSerializer.SerializeToElement(new { title = x.Title, body = x.Description, projectId = x.Planning?.ProjectId, milestoneId = x.Planning?.MilestoneId, featureId = x.Planning?.FeatureId, placement = x.Placement, workStatus = x.WorkStatus, sectionId = x.SectionId, archivedSectionName = x.ArchivedSectionName, bucket = x.Bucket, location = x.Kind == TaskEntityKind.Section ? x.Bucket : x.Placement, position = x.Position, planningPosition = x.PlanningPosition, isBacklogVisible = x.IsBacklogVisible, path = (string?)null, url = $"/tasks/{x.Id}" }));
 }
 
 public sealed class TaskSectionSyncMutationHandler(ITasksAgentAccess access) : ISyncMutationHandler

@@ -22,9 +22,7 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
             : db.Set<TaskItem>().AsNoTracking().SingleOrDefaultAsync(x => x.Id == id, ct);
     }
 
-    public Task SaveAsync(TaskItem item, CancellationToken ct) => SaveAsync(item, ct, false);
-
-    public Task SaveAsync(TaskItem item, CancellationToken ct, bool preserveSectionWhenEmpty) => transaction.ExecuteAsync(async token =>
+    public Task SaveAsync(TaskItem item, CancellationToken ct) => transaction.ExecuteAsync(async token =>
     {
         var previousSectionId = item.Version > 1
             ? await db.Set<TaskItem>().AsNoTracking().Where(x => x.Id == item.Id).Select(x => x.SectionId).SingleOrDefaultAsync(token)
@@ -47,7 +45,7 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
         var path = item.ProjectId is { } projectId ? await paths.ReadPathAsync(new(projectId, item.MilestoneId, item.FeatureId), token) : null;
         var payload = Payload(item, path?.Path);
         await journal.AppendAsync(new EntitySnapshot("tasks.task", item.Id, item.Version, false, JsonSerializer.SerializeToElement(payload)), token);
-        if (!preserveSectionWhenEmpty && previousSectionId is { } oldSectionId && item.SectionId != previousSectionId)
+        if (previousSectionId is { } oldSectionId && item.SectionId != previousSectionId)
             await DeleteEmptySectionAsync(oldSectionId, token);
     }, ct);
 
@@ -70,8 +68,11 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
         }, ct);
     }
 
-    public async Task<IReadOnlyList<TaskSection>> ListSectionsAsync(TaskLocation location, CancellationToken ct) =>
-        await db.Set<TaskSection>().AsNoTracking().Where(x => x.Location == location).OrderBy(x => x.Position).ToListAsync(ct);
+    public async Task<IReadOnlyList<TaskSection>> ListSectionsAsync(TaskLocation location, CancellationToken ct)
+    {
+        if (location != TaskLocation.Backlog) throw new ArgumentException("Task sections are stored in the Backlog bucket.");
+        return await db.Set<TaskSection>().AsNoTracking().Where(x => x.Location == location).OrderBy(x => x.Position).ToListAsync(ct);
+    }
 
     public async Task<TaskGroupOrderView> ReadGroupOrderAsync(TaskLocation location, CancellationToken ct)
     {
@@ -102,7 +103,7 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
             }
             else db.Add(section);
         }
-        await journal.AppendAsync(new EntitySnapshot("tasks.section", section.Id, section.Version, false, JsonSerializer.SerializeToElement(new { title = section.Name, bucket = Bucket(section.Location), position = section.Position, url = "/tasks", updatedAtUtc = DateTimeOffset.UtcNow })), token);
+        await journal.AppendAsync(new EntitySnapshot("tasks.section", section.Id, section.Version, false, JsonSerializer.SerializeToElement(new { title = section.Name, bucket = Bucket(section.Location), location = Bucket(section.Location), position = section.Position, isBacklogVisible = section.IsBacklogVisible, url = "/tasks", updatedAtUtc = DateTimeOffset.UtcNow })), token);
     }, ct);
 
     public async Task DeleteSectionAsync(Guid id, CancellationToken ct)
@@ -110,16 +111,7 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
         await transaction.ExecuteAsync(async token =>
         {
             var section = await db.Set<TaskSection>().SingleOrDefaultAsync(x => x.Id == id, token) ?? throw new KeyNotFoundException($"Section {id} was not found.");
-            if (await db.Set<TaskItem>().AnyAsync(x => x.SectionId == id && x.Location != TaskLocation.Archived, token)) throw new InvalidOperationException("Move the section's tasks before deleting it.");
-            // Older archived tasks retained a restrictive FK to their former section.
-            // Detach them and publish their new versions before deleting the group.
-            var archived = await db.Set<TaskItem>().Where(x => x.SectionId == id && x.Location == TaskLocation.Archived).ToListAsync(token);
-            foreach (var item in archived)
-            {
-                item.Archive(item.ArchivedSectionName ?? section.Name);
-                var path = item.ProjectId is { } projectId ? await paths.ReadPathAsync(new(projectId, item.MilestoneId, item.FeatureId), token) : null;
-                await journal.AppendAsync(new EntitySnapshot("tasks.task", item.Id, item.Version, false, JsonSerializer.SerializeToElement(Payload(item, path?.Path))), token);
-            }
+            if (await db.Set<TaskItem>().AnyAsync(x => x.SectionId == id, token)) throw new InvalidOperationException("Delete the section's tasks before deleting it.");
             db.Remove(section);
             await journal.AppendAsync(new EntitySnapshot("tasks.section", section.Id, section.Version + 1, true, null), token);
         }, ct);
@@ -127,8 +119,9 @@ public sealed class TasksRepository(PlatformDbContext db, ITransactionRunner tra
 
     private async Task DeleteEmptySectionAsync(Guid id, CancellationToken ct)
     {
-        if (!await db.Set<TaskSection>().AnyAsync(x => x.Id == id, ct)) return;
-        if (await db.Set<TaskItem>().AnyAsync(x => x.SectionId == id && x.Location != TaskLocation.Archived, ct)) return;
+        var section = await db.Set<TaskSection>().SingleOrDefaultAsync(x => x.Id == id, ct);
+        if (section is null || section.IsBacklogVisible) return;
+        if (await db.Set<TaskItem>().AnyAsync(x => x.SectionId == id, ct)) return;
         await DeleteSectionAsync(id, ct);
     }
 

@@ -9,7 +9,7 @@ import { readViewState, writeViewState } from '../../shared/uiViewState'
 import { hasPendingGroupOrder, queueGroupOrder, readGroupOrder, type GroupOrderView } from './groupOrderOffline'
 
 type Task = { id: string; title: string; description: string; projectId?: string; milestoneId?: string; featureId?: string; location: string; workStatus: string; sectionId?: string; archivedSectionName?: string; position: number; version: number }
-type Section = { id: string; name: string; location: string; position: number; version: number }
+type Section = { id: string; name: string; location: string; position: number; version: number; isBacklogVisible?: boolean }
 type FeatureLabel = { id: string; title: string }
 type MilestoneLabel = { id: string; title: string; features: FeatureLabel[] }
 type ProjectLabel = { id: string; title: string; milestones: MilestoneLabel[] }
@@ -19,15 +19,16 @@ type SwipeState = { key: string; pointerId: number; startX: number; startY: numb
 type DragState = { kind: 'task' | 'section'; id: string; pointerId: number; row: HTMLElement; target: HTMLElement | null; place: 'before' | 'after' | 'inside' | ''; started: boolean; lifecycle: ReturnType<typeof startReorderDrag> }
 
 const route = useRoute(), router = useRouter()
-const savedView = readViewState<{ bucket: string; filter: string; archive: boolean; expanded: { Backlog: string[]; Сегодня: string[] } }>('tasks', { bucket: 'Backlog', filter: 'all', archive: false, expanded: { Backlog: [], Сегодня: [] } })
-const savedExpanded = savedView.expanded || { Backlog: [], Сегодня: [] }
+const savedView = readViewState<{ bucket: string; filter: string; archive: boolean; expanded: { Backlog: string[]; Сегодня: string[]; Archive?: string[] } }>('tasks', { bucket: 'Backlog', filter: 'all', archive: false, expanded: { Backlog: [], Сегодня: [] } })
+const savedExpanded = savedView.expanded || { Backlog: [], Сегодня: [], Archive: [] }
 const state = reactive({
-  bucket: (savedView.bucket === 'Сегодня' ? 'Сегодня' : 'Backlog') as 'Backlog' | 'Сегодня', filter: typeof savedView.filter === 'string' ? savedView.filter : 'all', archive: savedView.archive === true, orderMode: false,
+  bucket: (savedView.bucket === 'Сегодня' ? 'Сегодня' : 'Backlog') as 'Backlog' | 'Сегодня', filter: ['all', 'New', 'InProgress', 'Done'].includes(savedView.filter) ? savedView.filter : 'all', archive: savedView.archive === true, orderMode: false,
   expanded: {
     Backlog: new Set<string>(Array.isArray(savedExpanded.Backlog) ? savedExpanded.Backlog.filter((key): key is string => typeof key === 'string') : []),
     Сегодня: new Set<string>(Array.isArray(savedExpanded['Сегодня']) ? savedExpanded['Сегодня'].filter((key): key is string => typeof key === 'string') : []),
+    Archive: new Set<string>(Array.isArray(savedExpanded.Archive) ? savedExpanded.Archive.filter((key): key is string => typeof key === 'string') : []),
   },
-  tasks: [] as Task[], sections: [] as Section[], projects: [] as ProjectLabel[],
+  tasks: [] as Task[], allTasks: [] as Task[], sections: [] as Section[], projects: [] as ProjectLabel[],
   groupOrder: { version: 0, keys: [] } as GroupOrderView,
   detail: null as Task | null, busy: false, error: '',
   creating: false, createType: 'task' as 'task' | 'section', createListOpen: false,
@@ -36,7 +37,7 @@ const state = reactive({
   detailEditing: '' as '' | 'title' | 'description',
   linkSheetOpen: false, linkProjectId: '', linkMilestoneId: '', linkFeatureId: '',
 })
-watch(() => ({ bucket: state.bucket, filter: state.filter, archive: state.archive, expanded: { Backlog: [...state.expanded.Backlog], Сегодня: [...state.expanded['Сегодня']] } }), value => writeViewState('tasks', value), { deep: true })
+watch(() => ({ bucket: state.bucket, filter: state.filter, archive: state.archive, expanded: { Backlog: [...state.expanded.Backlog], Сегодня: [...state.expanded['Сегодня']], Archive: [...state.expanded.Archive] } }), value => writeViewState('tasks', value), { deep: true })
 watch(() => route.path.split('/')[1], (section, previousSection) => {
   if (previousSection !== 'tasks' || section === 'tasks') return
   state.detailEditing = ''
@@ -48,7 +49,7 @@ watch(() => route.path.split('/')[1], (section, previousSection) => {
 }, { flush: 'sync' })
 const location = computed(() => state.archive ? 'Archived' : state.bucket === 'Сегодня' ? 'Today' : 'Backlog')
 const filtered = computed(() => state.tasks.filter(task => !state.detail || task.id === state.detail.id).filter(task => state.filter === 'all' || statusName(task.workStatus) === state.filter))
-const archiveTasks = computed(() => state.tasks.filter(task => state.filter === 'all' || (state.filter === 'Done' ? statusName(task.workStatus) === 'Done' : statusName(task.workStatus) !== 'Done')))
+const archiveTasks = computed(() => filtered.value)
 const linkedGroups = computed(() => {
   const ids = [...new Set(filtered.value.filter(task => task.projectId).map(task => task.projectId!))]
   return ids.map(projectId => ({ projectId, title: state.projects.find(x => x.id === projectId)?.title || 'Проект', tasks: filtered.value.filter(task => task.projectId === projectId).sort((a, b) => a.position - b.position) }))
@@ -56,7 +57,7 @@ const linkedGroups = computed(() => {
 const groups = computed<GroupView[]>(() => {
   if (state.archive) return []
   const result: GroupView[] = []
-  for (const section of state.sections) {
+  for (const section of state.sections.filter(section => state.bucket === 'Backlog' ? section.isBacklogVisible !== false : state.tasks.some(task => task.sectionId === section.id))) {
     const tasks = filtered.value.filter(item => item.sectionId === section.id)
     if (state.filter !== 'all' && !tasks.length) continue
     result.push({ kind: 'plain', key: `section:${section.id}`, title: section.name, section, tasks })
@@ -70,10 +71,23 @@ const groups = computed<GroupView[]>(() => {
   const positions = new Map(state.groupOrder.keys.map((key, index) => [key, index]))
   return result.sort((a, b) => (positions.get(a.key) ?? Number.MAX_SAFE_INTEGER) - (positions.get(b.key) ?? Number.MAX_SAFE_INTEGER))
 })
-const allOpen = computed(() => {
-  const keys = groups.value.map(g => g.key)
-  return keys.length > 0 && keys.every(key => state.expanded[state.bucket].has(key))
+const archiveGroups = computed<GroupView[]>(() => {
+  const result: GroupView[] = []
+  const sectionIds = [...new Set(archiveTasks.value.filter(task => task.sectionId && !task.projectId).map(task => task.sectionId!))]
+  for (const id of sectionIds) {
+    const section = state.sections.find(item => item.id === id)
+    const tasks = archiveTasks.value.filter(task => task.sectionId === id)
+    result.push({ kind: 'plain', key: `section:${id}`, title: section?.name || tasks[0]?.archivedSectionName || 'Личное', section: section || { id, name: tasks[0]?.archivedSectionName || 'Личное', location: 'Archived', position: 0, version: 0 }, tasks })
+  }
+  const unsectioned = archiveTasks.value.filter(task => !task.projectId && !task.sectionId)
+  if (unsectioned.length) result.push({ kind: 'plain', key: 'section:local', title: 'Личное', section: { id: '', name: 'Личное', location: 'Archived', position: 0, version: 0 }, tasks: unsectioned })
+  const projectIds = [...new Set(archiveTasks.value.filter(task => task.projectId).map(task => task.projectId!))]
+  for (const projectId of projectIds) result.push({ kind: 'project', key: `project:${projectId}`, title: state.projects.find(item => item.id === projectId)?.title || 'Проект', projectId, tasks: archiveTasks.value.filter(task => task.projectId === projectId) })
+  return result
 })
+const activeExpanded = computed(() => state.archive ? state.expanded.Archive : state.expanded[state.bucket])
+const visibleGroups = computed(() => state.archive ? archiveGroups.value : groups.value)
+const allOpen = computed(() => visibleGroups.value.length > 0 && visibleGroups.value.every(group => activeExpanded.value.has(group.key)))
 const showEmpty = computed(() => state.archive ? archiveTasks.value.length === 0 && !state.busy : groups.value.length === 0 && !state.busy)
 const emptyText = computed(() => state.busy ? 'Загружаем задачи…' : state.archive ? state.filter === 'all' ? 'Архив пока пуст.' : 'В архиве нет задач с таким статусом.' : 'Здесь пока нет задач.')
 const detailOrigin = computed(() => state.detail ? originPath(state.detail) : '')
@@ -86,7 +100,7 @@ const detailMoveLabel = computed(() => { const task = state.detail; if (!task) r
 const renamingKey = computed(() => state.renaming ? (state.renaming.kind === 'section' ? `section:${state.renaming.id}` : `task:${state.renaming.id}`) : '')
 const renamingValue = computed({ get: () => state.renaming?.value ?? '', set: (value: string) => { if (state.renaming) state.renaming.value = value } })
 const filters = [{ value: 'all', label: 'Все', dot: '' }, { value: 'New', label: 'Новые', dot: 'new' }, { value: 'InProgress', label: 'В работе', dot: 'work' }, { value: 'Done', label: 'Готово', dot: 'done' }]
-const archiveFilters = [{ value: 'all', label: 'Все' }, { value: 'Done', label: 'Выполненные' }, { value: 'unfinished', label: 'Без выполнения' }]
+const archiveFilters = filters
 
 const rootEl = ref<HTMLElement | null>(null)
 const groupsEl = ref<HTMLElement | null>(null)
@@ -168,28 +182,42 @@ function menuItemsFor(kind: 'task' | 'section' | 'project', id: string): MenuIte
   }
   if (kind === 'section') {
     const section = state.sections.find(s => s.id === id)
+    if (state.archive) {
+      if (!section) return []
+      const hasActiveTasks = state.allTasks.some(task => task.sectionId === id && (String(task.location).toLowerCase() === 'backlog' || String(task.location).toLowerCase() === 'today'))
+      return hasActiveTasks
+        ? [{ label: 'Удалить архивные задачи', danger: true, action: () => deleteArchivedSectionTasksFlow(section) }]
+        : [{ label: 'Удалить раздел и задачи архива', danger: true, action: () => deleteArchivedSectionFlow(section) }]
+    }
     const tasks = id === 'local'
       ? state.tasks.filter(task => !task.projectId && !state.sections.some(item => item.id === task.sectionId))
       : state.tasks.filter(t => t.sectionId === id)
     const items: MenuItem[] = []
     if (state.bucket === 'Сегодня') {
       const completed = tasks.filter(task => statusName(task.workStatus) === 'Done')
+      if (tasks.length) items.push({ label: 'Переместить задачи раздела в архив', action: () => archiveSectionTasks(section?.name || 'Личное', tasks) })
       if (completed.length) items.push({ label: 'Переместить готовые в архив', action: () => archiveCompletedTasks(section?.name || 'Личное', completed) })
     }
     if (!section) return items
-    items.push(
-      { label: 'Переименовать', action: () => startRename('section', section.id) },
-      { label: 'Удалить раздел', danger: true, action: () => deleteSectionFlow(section, tasks) },
-    )
+    if (state.bucket === 'Backlog') {
+      items.push({ label: 'Переименовать', action: () => startRename('section', section.id) })
+      const anySectionTasks = state.allTasks.some(task => task.sectionId === section.id)
+      const label = tasks.length ? 'Переместить задачи в архив' : anySectionTasks ? 'Убрать из Backlog' : 'Удалить раздел'
+      items.push({ label, danger: true, action: () => deleteSectionFlow(section, tasks, anySectionTasks) })
+    }
     return items
+  }
+  if (state.archive) {
+    return [{ label: 'Удалить архивные задачи', danger: true, action: () => deleteArchivedProjectGroupFlow(id) }]
   }
   const tasks = state.tasks.filter(t => t.projectId === id)
   const items: MenuItem[] = []
   if (state.bucket === 'Сегодня') {
     const completed = tasks.filter(task => statusName(task.workStatus) === 'Done')
+    if (tasks.length) items.push({ label: 'Переместить задачи группы в архив', action: () => archiveSectionTasks(state.projects.find(project => project.id === id)?.title || 'Проект', tasks) })
     if (completed.length) items.push({ label: 'Переместить готовые в архив', action: () => archiveCompletedTasks(state.projects.find(project => project.id === id)?.title || 'Проект', completed) })
   }
-  items.push({ label: 'Удалить раздел', danger: true, action: () => deleteProjectGroupFlow(id, tasks) })
+  if (state.bucket === 'Backlog' && tasks.length) items.push({ label: 'Переместить задачи в архив', action: () => deleteProjectGroupFlow(id, tasks) })
   return items
 }
 function openMenuAt(key: string, point: { x: number; y: number } | null) {
@@ -305,17 +333,18 @@ function selectBucket(bucket: 'Backlog' | 'Сегодня') { closeMenu(); state
 function openArchive() { closeMenu(); state.orderMode = false; state.filter = 'all'; state.archive = true; if (route.path !== '/tasks') { void router.replace('/tasks') } else { void refresh() } }
 function closeArchive() { closeMenu(); state.orderMode = false; state.filter = 'all'; state.archive = false; void refresh() }
 function toggleAllSections() {
-  const keys = groups.value.map(g => g.key)
-  const open = keys.length > 0 && keys.every(key => state.expanded[state.bucket].has(key))
-  state.expanded[state.bucket] = new Set(open ? [] : keys)
+  const keys = visibleGroups.value.map(g => g.key)
+  const open = keys.length > 0 && keys.every(key => activeExpanded.value.has(key))
+  if (state.archive) state.expanded.Archive = new Set(open ? [] : keys)
+  else state.expanded[state.bucket] = new Set(open ? [] : keys)
 }
 function toggleSectionFor(key: string) {
   if (state.orderMode) return
   if (revealedKey.value) { closeMenu(); return }
-  const open = state.expanded[state.bucket]
+  const open = activeExpanded.value
   open.has(key) ? open.delete(key) : open.add(key)
 }
-function isExpanded(key: string) { return state.expanded[state.bucket].has(key) }
+function isExpanded(key: string) { return activeExpanded.value.has(key) }
 function toggleOrderMode() { closeMenu(); swipe = null; clearGhost(); clearDragMarks(); drag = null; state.orderMode = !state.orderMode }
 async function moveTaskVia(task: Task, target: 'today' | 'backlog') {
   await mutate(task, target)
@@ -335,23 +364,45 @@ function archiveCompletedTasks(sectionName: string, tasks: Task[]) {
     title: `Переместить готовые задачи раздела «${sectionName}» в архив?`,
     body: 'Выполненные задачи можно будет найти в архиве. Раздел и незавершённые задачи останутся на месте.',
     confirmLabel: 'В архив',
-    onConfirm: () => { void (async () => { for (const task of tasks) await mutate(task, 'archive', 'POST', { expectedVersion: task.version, preserveSectionWhenEmpty: true }) })() },
+    onConfirm: () => { void (async () => { for (const task of tasks) await mutate(task, 'archive') })() },
   })
 }
-function deleteSectionFlow(section: Section, tasks: Task[]) {
+function archiveSectionTasks(sectionName: string, tasks: Task[]) {
   askConfirm({
-    title: `Удалить раздел «${section.name}»?`,
-    body: tasks.length ? `${tasks.length} задач будут перемещены в архив.` : 'Раздел будет удалён.',
-    confirmLabel: 'Удалить',
-    onConfirm: () => { void (async () => { for (const task of tasks) await mutate(task, 'archive'); if (state.sections.some(item => item.id === section.id)) await deleteSection(section); })() },
+    title: `Переместить задачи раздела «${sectionName}» в архив?`,
+    body: `${tasks.length} задач из Сегодня перейдут в архив. Задачи этого раздела в Backlog останутся на месте.`,
+    confirmLabel: 'В архив',
+    onConfirm: () => { void (async () => { for (const task of tasks) await mutate(task, 'archive') })() },
   })
+}
+function deleteSectionFlow(section: Section, tasks: Task[], hasRelatedTasks: boolean) {
+  if (!tasks.length) { void deleteSection(section, hasRelatedTasks); return }
+  askConfirm({
+    title: `Переместить задачи раздела «${section.name}» в архив?`,
+    body: `${tasks.length} задач из Backlog перейдут в архив. Задачи раздела в Сегодня не изменятся.`,
+    confirmLabel: 'В архив',
+    onConfirm: () => { void deleteSection(section, hasRelatedTasks) },
+  })
+}
+function deleteArchivedSectionFlow(section: Section) {
+  const tasks = state.allTasks.filter(task => task.sectionId === section.id && isArchived(task))
+  askConfirm({ title: `Удалить раздел «${section.name}» и задачи в нём навсегда?`, body: `${tasks.length} архивных задач будут удалены.`, confirmLabel: 'Удалить навсегда', onConfirm: () => { void deleteArchivedSection(section, tasks) } })
+}
+function deleteArchivedSectionTasksFlow(section: Section) {
+  const tasks = state.allTasks.filter(task => task.sectionId === section.id && isArchived(task))
+  askConfirm({ title: `Удалить архивные задачи раздела «${section.name}» навсегда?`, body: `${tasks.length} архивных задач будут удалены. Задачи в Сегодня и Backlog останутся на месте.`, confirmLabel: 'Удалить навсегда', onConfirm: () => { void (async () => { for (const task of tasks) await removeArchivedTask(task) })() } })
+}
+function deleteArchivedProjectGroupFlow(projectId: string) {
+  const title = state.projects.find(project => project.id === projectId)?.title || 'Проект'
+  const tasks = state.allTasks.filter(task => task.projectId === projectId && isArchived(task))
+  askConfirm({ title: `Удалить архивные задачи проекта «${title}» навсегда?`, body: `${tasks.length} архивных задач будут удалены.`, confirmLabel: 'Удалить навсегда', onConfirm: () => { void (async () => { for (const task of tasks) await removeArchivedTask(task) })() } })
 }
 function deleteProjectGroupFlow(projectId: string, tasks: Task[]) {
   const title = state.projects.find(p => p.id === projectId)?.title || 'Проект'
   askConfirm({
-    title: `Удалить раздел «${title}»?`,
-    body: tasks.length ? `${tasks.length} задач будут перемещены в архив.` : 'Раздел будет удалён.',
-    confirmLabel: 'Удалить',
+    title: `Переместить задачи проекта «${title}» в архив?`,
+    body: `${tasks.length} задач будут перемещены в архив.`,
+    confirmLabel: 'В архив',
     onConfirm: () => { void (async () => { for (const task of tasks) await mutate(task, 'archive'); })() },
   })
 }
@@ -401,12 +452,39 @@ async function renameSection(section: Section, name: string) {
     state.error = (error as Error).message
   }
 }
-async function deleteSection(section: Section) {
+async function deleteSection(section: Section, hasRelatedTasks: boolean) {
   try { await request(`/sections/${section.id}`, { method: 'DELETE', body: JSON.stringify({ expectedVersion: section.version }) }); await refresh() }
   catch (error) {
     if (error instanceof LocalMutation) {
-      await queueTask('tasks.section', section.id, section.version, { operation: 'delete', kind: 'section', id: section.id, bucket: section.location }, true)
-      state.sections = state.sections.filter(x => x.id !== section.id); await cacheRows('tasks.section', state.sections, true); state.error = ''; return
+      await queueTask('tasks.section', section.id, section.version, { operation: 'delete', kind: 'section', id: section.id, bucket: 'backlog' }, true)
+      const archived = state.allTasks.filter(task => task.sectionId === section.id && String(task.location).toLowerCase() === 'backlog').map(task => ({ ...task, location: 'archived', archivedSectionName: section.name, version: task.version + 1 }))
+      state.allTasks = [...state.allTasks.filter(task => task.sectionId !== section.id || String(task.location).toLowerCase() !== 'backlog'), ...archived]
+      state.tasks = state.tasks.filter(task => task.sectionId !== section.id || String(task.location).toLowerCase() !== 'backlog')
+      const hidden = { ...section, isBacklogVisible: false, version: section.version + 1 }
+      state.sections = hasRelatedTasks ? state.sections.map(item => item.id === section.id ? hidden : item) : state.sections.filter(item => item.id !== section.id)
+      await cacheRows('tasks.task', archived, true)
+      if (hasRelatedTasks) {
+        const store = await getOfflineStore(), cachedSection = await store.getEntity('tasks.section.view', section.id)
+        if (cachedSection) await store.putEntity({ ...cachedSection, payload: hidden, deleted: false, updatedAt: new Date().toISOString() })
+      } else await cacheRows('tasks.section', state.sections, true)
+      state.error = ''; return
+    }
+    state.error = (error as Error).message
+  }
+}
+async function deleteArchivedSection(section: Section, archivedTasks: Task[]) {
+  try { await request(`/sections/${section.id}/archive`, { method: 'DELETE', body: JSON.stringify({ expectedVersion: section.version }) }); await refresh() }
+  catch (error) {
+    if (error instanceof LocalMutation) {
+      await queueTask('tasks.section', section.id, section.version, { operation: 'delete', kind: 'section', id: section.id, bucket: 'archive' }, true)
+      const deletedIds = new Set(archivedTasks.map(task => task.id))
+      state.allTasks = state.allTasks.filter(task => !deletedIds.has(task.id))
+      state.tasks = state.tasks.filter(task => !deletedIds.has(task.id))
+      state.sections = state.sections.filter(item => item.id !== section.id)
+      const store = await getOfflineStore(), cachedSection = await store.getEntity('tasks.section.view', section.id), now = new Date().toISOString()
+      await Promise.all(archivedTasks.map(task => store.putEntity({ type: 'tasks.task.view', id: task.id, version: task.version + 1, payload: null, deleted: true, updatedAt: now })))
+      if (cachedSection) await store.putEntity({ ...cachedSection, deleted: true, updatedAt: new Date().toISOString() })
+      state.error = ''; return
     }
     state.error = (error as Error).message
   }
@@ -414,14 +492,17 @@ async function deleteSection(section: Section) {
 
 // ---------- create sheet ----------
 function openCreateSheet() {
+  if (state.archive || state.bucket !== 'Backlog') return
   closeMenu(); closeConfirm()
   state.createType = 'task'; state.title = ''; state.description = ''
-  if (!state.sections.some(s => s.id === state.sectionId)) state.sectionId = state.sections[0]?.id || ''
+  const visibleSections = state.sections.filter(section => section.isBacklogVisible !== false)
+  if (!visibleSections.some(s => s.id === state.sectionId)) state.sectionId = visibleSections[0]?.id || ''
   state.createListOpen = false; state.creating = true
   nextTick(() => nameFieldEl.value?.focus())
 }
 function closeCreateSheet() { state.creating = false; state.createListOpen = false }
 async function submitCreate() {
+  if (state.archive || state.bucket !== 'Backlog') { closeCreateSheet(); return }
   if (!state.title.trim()) return
   try {
     if (state.createType === 'section') {
@@ -434,57 +515,38 @@ async function submitCreate() {
   } catch (error) { state.error = (error as Error).message }
 }
 async function createTask(): Promise<Task | null> {
-  if (!state.title.trim()) return null
-  let created: Task, queuedOffline = false, moveError = ''
-  try { created = await request<Task>('', { method: 'POST', body: JSON.stringify({ title: state.title, description: state.description, projectId: null, milestoneId: null, featureId: null, sectionId: state.bucket === 'Backlog' ? (state.sectionId || null) : null }) }) }
+  if (!state.title.trim() || state.archive || state.bucket !== 'Backlog') return null
+  let created: Task
+  try { created = await request<Task>('', { method: 'POST', body: JSON.stringify({ title: state.title, description: state.description, projectId: null, milestoneId: null, featureId: null, sectionId: state.sectionId || null }) }) }
   catch (error) {
     if (!(error instanceof LocalMutation)) throw error
-    const id = newId(), sectionId = state.bucket === 'Backlog' ? state.sectionId || state.sections[0]?.id || null : null
+    const id = newId(), sectionId = state.sectionId || state.sections.find(section => section.isBacklogVisible !== false)?.id || null
     const payload = { operation: 'create', kind: 'task', id, title: state.title.trim(), description: state.description, placement: 'backlog', workStatus: 'new', sectionId }
     const local: Task = { id, title: state.title.trim(), description: state.description, location: 'backlog', workStatus: 'new', sectionId: sectionId || undefined, position: state.tasks.length, version: 1 }
     await queueTask('tasks.task', id, null, payload, false, local)
     created = { id, title: state.title.trim(), description: state.description, location: 'backlog', workStatus: 'new', sectionId: sectionId || undefined, position: state.tasks.length, version: 1 }
-    queuedOffline = true
-    state.tasks.push(created); await cacheRows('tasks.task', state.tasks, true); state.error = ''
-  }
-  if (state.bucket === 'Сегодня') {
-    if (queuedOffline) {
-      const backlogTask = created
-      created = { ...created, location: 'today', version: created.version + 1 }
-      await queueTask('tasks.task', backlogTask.id, backlogTask.version, { operation: 'move', kind: 'task', id: backlogTask.id, expectedVersion: backlogTask.version, placement: 'today', workStatus: 'new', sectionId: null }, false, created)
-      state.tasks = state.tasks.map(x => x.id === created.id ? created : x)
-      await cacheRows('tasks.task', state.tasks, true)
-    } else {
-      try { await request(`/${created.id}/today`, { method: 'POST', body: JSON.stringify({ expectedVersion: created.version }) }) }
-      catch (error) {
-        if (error instanceof LocalMutation) {
-          const todayTask = { ...created, location: 'today', version: created.version + 1 }
-          await queueTask('tasks.task', created.id, created.version, { operation: 'move', kind: 'task', id: created.id, expectedVersion: created.version, placement: 'today', workStatus: 'new', sectionId: null }, false, todayTask)
-          state.tasks = state.tasks.map(x => x.id === created.id ? todayTask : x); state.error = ''
-        } else moveError = (error as Error).message
-      }
-    }
+    state.tasks.push(created); state.allTasks.push(created); await cacheRows('tasks.task', state.tasks, true); state.error = ''
   }
   state.title = ''; state.description = ''; state.creating = false
-  if (state.bucket === 'Backlog' && created.sectionId) state.expanded[state.bucket].add(`section:${created.sectionId}`)
-  if (moveError) { state.bucket = 'Backlog'; await refresh(); state.error = `Задача создана в Backlog, но не перенесена на Сегодня: ${moveError}` }
-  else if (!queuedOffline) await refresh()
+  if (created.sectionId) state.expanded.Backlog.add(`section:${created.sectionId}`)
+  if (created.id && !state.allTasks.some(task => task.id === created.id)) state.allTasks.push(created)
+  if (navigator.onLine) await refresh()
   return created
 }
 async function createSection(): Promise<Section | null> {
-  if (!state.title.trim()) return null
-  let created: Section, queuedOffline = false
-  try { created = await request<Section>('/sections', { method: 'POST', body: JSON.stringify({ name: state.title, location: state.bucket === 'Сегодня' ? 'today' : 'backlog' }) }) }
+  if (!state.title.trim() || state.archive || state.bucket !== 'Backlog') return null
+  let created: Section
+  try { created = await request<Section>('/sections', { method: 'POST', body: JSON.stringify({ name: state.title, location: 'backlog' }) }) }
   catch (error) {
     if (!(error instanceof LocalMutation)) { state.error = (error as Error).message; return null }
-    const id = newId(), bucket = state.bucket === 'Сегодня' ? 'today' : 'backlog'
+    const id = newId(), bucket = 'backlog'
     const payload = { operation: 'create', kind: 'section', id, title: state.title.trim(), bucket, position: state.sections.length }
-    const local: Section = { id, name: state.title.trim(), location: bucket, position: state.sections.length, version: 1 }
+    const local: Section = { id, name: state.title.trim(), location: bucket, isBacklogVisible: true, position: state.sections.length, version: 1 }
     await queueTask('tasks.section', id, null, payload, false, local)
-    created = { id, name: state.title.trim(), location: bucket, position: state.sections.length, version: 1 }
-    queuedOffline = true; state.sections.push(created); await cacheRows('tasks.section', state.sections, true); state.error = ''
+    created = local
+    state.sections.push(created); await cacheRows('tasks.section', state.sections, true); state.error = ''
   }
-  state.title = ''; state.creating = false; if (!queuedOffline) await refresh(); state.sectionId = created.id
+  state.title = ''; state.creating = false; if (navigator.onLine) await refresh(); state.sectionId = created.id
   state.expanded[state.bucket].add(`section:${created.id}`)
   return created
 }
@@ -539,6 +601,7 @@ async function removeArchivedTask(task: Task) {
     } catch (saveError) { state.error = (saveError as Error).message; return }
   }
   state.tasks = state.tasks.filter(item => item.id !== task.id)
+  state.allTasks = state.allTasks.filter(item => item.id !== task.id)
   if (state.detail?.id === task.id) {
     state.detail = null; state.archive = true
     await router.replace('/tasks')
@@ -701,13 +764,15 @@ async function refresh() {
       state.archive ? Promise.resolve({ version: 0, keys: [] }) : readGroupOrder(bucket),
     ])
     if (generation !== refreshGeneration) return
+    state.allTasks = allTasks
     state.tasks = allTasks.filter(x => String(x.location).toLowerCase() === bucket.toLowerCase()).sort((a, b) => a.position - b.position)
-    state.sections = state.archive ? [] : allSections.filter(x => String(x.location).toLowerCase() === bucket.toLowerCase()).sort((a, b) => a.position - b.position)
+    state.sections = allSections.sort((a, b) => a.position - b.position)
     state.groupOrder = groupOrder || { version: 0, keys: [] }
     state.projects = projectRows.filter(x => !x.deleted).map(x => x.payload as ProjectLabel)
     state.detail = requestedId ? allTasks.find(x => x.id === requestedId) || null : null
     if (state.detail && !state.detailEditing) { state.title = state.detail.title; state.description = state.detail.description }
-    if (state.sections.length && !state.sections.some(x => x.id === state.sectionId)) state.sectionId = state.sections[0].id
+    const visibleSections = state.sections.filter(section => section.isBacklogVisible !== false)
+    if (visibleSections.length && !visibleSections.some(x => x.id === state.sectionId)) state.sectionId = visibleSections[0].id
   } catch (error) { state.error = (error as Error).message }
   finally { if (generation === refreshGeneration) state.busy = false }
 }
@@ -720,15 +785,20 @@ async function mutate(task: Task, suffix: string, method = 'POST', body: object 
       const placement = suffix === 'status' || suffix === 'section' ? task.location : suffix === 'today' ? 'today' : suffix === 'backlog' || suffix === 'restore' ? 'backlog' : suffix === 'planning' ? 'planned' : 'archived'
       const payload = suffix === 'section'
         ? { operation: 'update', kind: 'task', id: task.id, expectedVersion: task.version, sectionId: (body as { sectionId: string }).sectionId }
-      : { operation, kind: 'task', id: task.id, expectedVersion: task.version, placement, workStatus: suffix === 'status' ? (body as { status: string }).status : statusName(task.workStatus) === 'InProgress' ? 'inProgress' : statusName(task.workStatus).toLowerCase(), sectionId: suffix === 'planning' ? null : task.sectionId, ...(suffix === 'planning' && task.projectId && task.milestoneId && task.featureId ? { planning: { projectId: task.projectId, milestoneId: task.milestoneId, featureId: task.featureId } } : {}), ...(suffix === 'archive' && (body as { preserveSectionWhenEmpty?: boolean }).preserveSectionWhenEmpty ? { preserveSectionWhenEmpty: true } : {}) }
-      const local = { ...task, sectionId: suffix === 'archive' ? undefined : suffix === 'section' ? (body as { sectionId: string }).sectionId : task.sectionId, workStatus: suffix === 'status' ? (body as { status: string }).status : suffix === 'restore' || suffix === 'backlog' ? 'new' : task.workStatus, location: suffix === 'section' ? task.location : placement, version: task.version + 1 }
+      : { operation, kind: 'task', id: task.id, expectedVersion: task.version, placement, workStatus: suffix === 'status' ? (body as { status: string }).status : statusName(task.workStatus) === 'InProgress' ? 'inProgress' : statusName(task.workStatus).toLowerCase(), sectionId: suffix === 'planning' ? null : task.sectionId, ...(suffix === 'planning' && task.projectId && task.milestoneId && task.featureId ? { planning: { projectId: task.projectId, milestoneId: task.milestoneId, featureId: task.featureId } } : {}) }
+      const local = { ...task, sectionId: suffix === 'section' ? (body as { sectionId: string }).sectionId : task.sectionId, workStatus: suffix === 'status' ? (body as { status: string }).status : suffix === 'restore' || suffix === 'backlog' ? 'new' : task.workStatus, location: suffix === 'section' ? task.location : placement, version: task.version + 1 }
       if (suffix === 'archive') local.archivedSectionName = state.sections.find(section => section.id === task.sectionId)?.name || task.archivedSectionName
+      state.allTasks = state.allTasks.map(item => item.id === task.id ? local : item)
       await queueTask('tasks.task', task.id, task.version, payload, false, local)
       state.tasks = state.tasks.filter(x => x.id !== task.id); if (String(local.location).toLowerCase() === location.value.toLowerCase()) state.tasks.push(local)
-      if (suffix === 'archive' && !(body as { preserveSectionWhenEmpty?: boolean }).preserveSectionWhenEmpty && task.sectionId && !state.tasks.some(item => item.sectionId === task.sectionId)) {
-        state.sections = state.sections.filter(section => section.id !== task.sectionId)
-        const store = await getOfflineStore(), section = await store.getEntity('tasks.section.view', task.sectionId)
-        if (section) await store.putEntity({ ...section, deleted: true, updatedAt: new Date().toISOString() })
+      if ((suffix === 'backlog' || suffix === 'restore') && task.sectionId) {
+        const visibleSection = state.sections.find(section => section.id === task.sectionId)
+        if (visibleSection) {
+          const shown = { ...visibleSection, isBacklogVisible: true, version: visibleSection.version + 1 }
+          state.sections = state.sections.map(section => section.id === task.sectionId ? shown : section)
+          const store = await getOfflineStore(), cachedSection = await store.getEntity('tasks.section.view', task.sectionId)
+          if (cachedSection) await store.putEntity({ ...cachedSection, payload: shown, deleted: false, updatedAt: new Date().toISOString() })
+        }
       }
       if (state.detail?.id === task.id) state.detail = local
       await cacheRows('tasks.task', state.tasks, true)
@@ -784,7 +854,13 @@ async function dropTaskBefore(sectionId: string, sourceId: string, targetId: str
 }
 async function dropGroup(sourceKey: string, targetKey: string, after = false) {
   if (sourceKey === targetKey) return
-  const currentKeys = new Set([...state.sections.map(section => `section:${section.id}`), ...state.tasks.filter(task => task.projectId).map(task => `project:${task.projectId}`)])
+  const visibleSectionIds = state.bucket === 'Backlog'
+    ? state.sections.filter(section => section.isBacklogVisible !== false).map(section => section.id)
+    : [...new Set(state.tasks.filter(task => task.sectionId).map(task => task.sectionId!))]
+  const currentKeys = new Set([
+    ...visibleSectionIds.map(id => `section:${id}`),
+    ...new Set(state.tasks.filter(task => task.projectId).map(task => `project:${task.projectId}`)),
+  ])
   const keys = [...state.groupOrder.keys.filter(key => currentKeys.has(key)), ...[...currentKeys].filter(key => !state.groupOrder.keys.includes(key))]
   const from = keys.indexOf(sourceKey), to = keys.indexOf(targetKey)
   if (from < 0 || to < 0) return
@@ -872,7 +948,7 @@ onBeforeUnmount(() => {
           <button type="button" class="order-mode-toggle" :aria-pressed="state.orderMode" :aria-label="state.orderMode ? 'Выключить сортировку' : 'Включить сортировку'" :title="state.orderMode ? 'Выключить сортировку' : 'Включить сортировку'" @click="toggleOrderMode">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h11M19 6v12m-2.5-2.5L19 18l2.5-2.5"/></svg>
           </button>
-          <button type="button" class="plus" aria-label="Создать задачу или раздел" @click="openCreateSheet">＋</button>
+          <button v-if="state.bucket === 'Backlog'" type="button" class="plus" aria-label="Создать задачу или раздел" @click="openCreateSheet">＋</button>
         </div>
       </div>
 
@@ -886,26 +962,31 @@ onBeforeUnmount(() => {
       </div>
 
       <div v-if="state.archive" class="task-filters" aria-label="Фильтр архива">
-        <button v-for="filter in archiveFilters" :key="filter.value" type="button" class="task-filter" :class="{ active: state.filter === filter.value }" :aria-pressed="state.filter === filter.value" @click="state.filter = filter.value">{{ filter.label }}</button>
+        <button v-for="filter in archiveFilters" :key="filter.value" type="button" class="task-filter" :class="{ active: state.filter === filter.value }" :aria-pressed="state.filter === filter.value" @click="state.filter = filter.value"><span v-if="filter.dot" class="task-filter-dot" :class="filter.dot" />{{ filter.label }}</button>
       </div>
 
       <div ref="scrollEl" class="scroll task-scroll">
-        <div v-if="state.archive" ref="groupsEl" class="task-groups archive-flat">
-          <div v-for="task in archiveTasks" :key="task.id" class="task-row-wrap" :data-reveal-key="`task:${task.id}`" :class="{ revealed: revealedKey === `task:${task.id}`, 'context-active': revealedKey === `task:${task.id}` }">
-            <article class="task-row" :data-task-id="task.id" @contextmenu.prevent="rowContextMenu($event, `task:${task.id}`)" @pointerdown="rowPointerDown($event, `task:${task.id}`)" @pointermove="rowPointerMove" @pointerup="rowPointerUp" @pointercancel="rowPointerCancel">
-              <template v-if="renamingKey === `task:${task.id}`">
-                <input ref="renameInputEl" v-model="renamingValue" class="task-inline-input" maxlength="160" @keydown.enter.prevent="commitRename(true)" @keydown.esc.prevent="commitRename(false)" @blur="commitRename(true)" @click.stop />
-              </template>
-              <template v-else>
-                <button type="button" class="task-open" @click="onTaskOpenClick(task)">
-                  <span v-if="isToday(task)" class="task-status-dot" :class="workState(task.workStatus)" />
-                  <span class="task-copy"><span class="task-title">{{ task.title }}</span><span class="task-archive-status">{{ statusName(task.workStatus) === 'Done' ? 'Выполнена' : 'Без выполнения' }}</span></span>
-                </button>
-                <button type="button" class="row-menu-trigger" :hidden="state.orderMode" :aria-label="`Действия с задачей «${task.title}»`" aria-haspopup="menu" @click.stop="triggerMenu(`task:${task.id}`)">⋯</button>
-                <ReorderHandle v-if="state.orderMode" :drag-kind="'task'" :drag-id="task.id" :label="`Перетащить ${task.title}`" />
-              </template>
-            </article>
-          </div>
+        <div v-if="state.archive" ref="groupsEl" class="task-groups">
+          <section v-for="group in archiveGroups" :key="group.key" class="task-group">
+            <div class="task-section-wrap" :data-reveal-key="group.key" :class="{ revealed: revealedKey === group.key, 'context-active': revealedKey === group.key }">
+              <div class="task-section-row" :data-section-row-key="group.key" @contextmenu.prevent="rowContextMenu($event, group.key)" @pointerdown="rowPointerDown($event, group.key)" @pointermove="rowPointerMove" @pointerup="rowPointerUp" @pointercancel="rowPointerCancel">
+                <button type="button" class="chev" :class="{ open: isExpanded(group.key) }" @click="toggleSectionFor(group.key)">›</button>
+                <button type="button" class="task-section-title" @click="toggleSectionFor(group.key)"><span v-if="group.kind === 'project'" class="task-project-diamond" aria-hidden="true" /><span class="task-section-label">{{ group.title }}</span></button>
+                <button v-if="group.kind === 'project' || (group.kind === 'plain' && group.section.id)" type="button" class="row-menu-trigger" :aria-label="`Действия с разделом «${group.title}»`" aria-haspopup="menu" @click.stop="triggerMenu(group.key)">⋯</button>
+              </div>
+            </div>
+            <div v-if="isExpanded(group.key)" class="task-list">
+              <div v-for="task in group.tasks" :key="task.id" class="task-row-wrap" :data-reveal-key="`task:${task.id}`" :class="{ revealed: revealedKey === `task:${task.id}`, 'context-active': revealedKey === `task:${task.id}` }">
+                <article class="task-row" :data-task-id="task.id" @contextmenu.prevent="rowContextMenu($event, `task:${task.id}`)" @pointerdown="rowPointerDown($event, `task:${task.id}`)" @pointermove="rowPointerMove" @pointerup="rowPointerUp" @pointercancel="rowPointerCancel">
+                  <template v-if="renamingKey === `task:${task.id}`"><input ref="renameInputEl" v-model="renamingValue" class="task-inline-input" maxlength="160" @keydown.enter.prevent="commitRename(true)" @keydown.esc.prevent="commitRename(false)" @blur="commitRename(true)" @click.stop /></template>
+                  <template v-else>
+                    <button type="button" class="task-open" @click="onTaskOpenClick(task)"><span class="task-status-dot" :class="workState(task.workStatus)" /><span class="task-copy"><span class="task-title">{{ task.title }}</span><span class="task-archive-status">{{ workLabel(task.workStatus) }}</span></span></button>
+                    <button type="button" class="row-menu-trigger" :aria-label="`Действия с задачей «${task.title}»`" aria-haspopup="menu" @click.stop="triggerMenu(`task:${task.id}`)">⋯</button>
+                  </template>
+                </article>
+              </div>
+            </div>
+          </section>
         </div>
         <div v-else ref="groupsEl" class="task-groups" @pointerdown="onGroupsPointerDown" @pointermove="onGroupsPointerMove" @pointerup="void finishDrag($event)" @pointercancel="onGroupsPointerCancel">
           <section v-for="group in groups" :key="group.key" class="task-group">
@@ -980,7 +1061,7 @@ onBeforeUnmount(() => {
         <span class="where-value">{{ state.sections.find(s => s.id === state.sectionId)?.name || 'Личное' }}</span><span class="where-arrow">›</span>
       </button>
       <div v-if="state.createType === 'task'" class="parent-list" :class="{ open: state.createListOpen }">
-        <button v-for="section in state.sections" :key="section.id" type="button" class="parent-option" :class="{ selected: state.sectionId === section.id }" @click="state.sectionId = section.id; state.createListOpen = false">{{ section.name }}</button>
+        <button v-for="section in state.sections.filter(item => item.isBacklogVisible !== false)" :key="section.id" type="button" class="parent-option" :class="{ selected: state.sectionId === section.id }" @click="state.sectionId = section.id; state.createListOpen = false">{{ section.name }}</button>
       </div>
       <button type="button" class="create-submit" @click="submitCreate">{{ state.createType === 'task' ? 'Создать' : 'Создать раздел' }}</button>
     </section>
