@@ -1,0 +1,141 @@
+/* Reuse the mobile screens; only the shell and presentation adapt to wider windows.
+   Width, rather than orientation, keeps the layout stable when a keyboard opens. */
+.phone-shell .sidebar-brand,
+.phone-shell .bottom-item.tablet-only,
+.phone-shell .bottom-window.chat-navigation { display: none; }
+
+@media (min-width: 768px) {
+  html.keyboard-viewport-lock,
+  html.keyboard-viewport-lock body { overflow: hidden; overscroll-behavior: none; }
+
+  .app-frame {
+    position: fixed;
+    top: var(--visible-viewport-offset-top, 0px);
+    left: 0;
+    width: 100%;
+    height: var(--visible-viewport-height, 100dvh);
+    min-height: 0;
+    padding: 0;
+    overflow: hidden;
+  }
+
+  .phone-shell {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    min-height: 0;
+    margin: 0;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .phone-shell .app-body {
+    width: 100%;
+    max-width: 860px;
+    min-width: 0;
+    margin: 0 auto;
+    padding: max(20px, env(safe-area-inset-top)) 28px 0;
+  }
+
+  .phone-shell .page-content { min-width: 0; }
+  .phone-shell .bottom-window { padding-bottom: max(9px, env(safe-area-inset-bottom)); }
+  .phone-shell .bottom-item { flex: 1; min-width: 0; }
+
+  /* Keep reading/editing comfortable without enlarging the entire interface. */
+  .phone-shell .doc-open-content,
+  .phone-shell .doc-content-input,
+  .phone-shell .tasks-section .task-description,
+  .phone-shell .tasks-section .task-description-input,
+  .phone-shell .planning-detail-description,
+  .phone-shell .planning-description-field { font-size: 16px; line-height: 1.6; overflow-wrap: anywhere; }
+
+  .phone-shell .doc-open-title,
+  .phone-shell .tasks-section .task-title-open { overflow-wrap: anywhere; }
+  .phone-shell .rename-input,
+  .phone-shell .tasks-section .task-inline-input,
+  .phone-shell .task-create-sheet .task-create-description,
+  .phone-shell .task-link-label select,
+  .phone-shell .planning-detail-description-input { font-size: 16px; }
+  .phone-shell .chat-bubble { font-size: 16px; line-height: 1.5; }
+  .phone-shell .chat-answer { min-width: 0; }
+  .phone-shell .chat-back-row { flex-wrap: wrap; }
+  .phone-shell .chat-back-actions { flex-wrap: wrap; }
+  .phone-shell .chat-composer { padding-bottom: max(16px, env(safe-area-inset-bottom)); }
+  .phone-shell .tasks-section .task-detail-bottom-actions { flex-wrap: wrap; }
+
+  .phone-shell .sheet {
+    top: 50%;
+    bottom: auto;
+    left: 50%;
+    right: auto;
+    width: min(520px, calc(100% - 48px));
+    max-height: calc(100% - 48px);
+    padding: 20px;
+    transform: translate(-50%, calc(-50% + 20px));
+  }
+  .phone-shell .sheet.open { transform: translate(-50%, -50%); }
+  .phone-shell .chat-history-overlay { align-items: center; justify-content: center; padding: 24px; }
+  .phone-shell .chat-history-sheet { max-width: 520px; }
+
+  /* Primary touch targets stay at least 44 CSS pixels in tablet layouts. */
+  .phone-shell .chat-head-btn,
+  .phone-shell .sheet-close,
+  .phone-shell .doc-delete-icon,
+  .phone-shell .chat-new-btn { width: 44px; height: 44px; }
+  .phone-shell .doc-action,
+  .phone-shell .type-btn,
+  .phone-shell .parent-option,
+  .phone-shell .row-context-item,
+  .phone-shell .app-confirm-actions button,
+  .phone-shell .tasks-section .task-filter,
+  .phone-shell .tasks-section .task-tab,
+  .phone-shell .tasks-section .task-detail-pill,
+  .phone-shell .planning-task-filter,
+  .phone-shell .chat-general-btn,
+  .phone-shell .confirm-button,
+  .phone-shell .proposal-dismiss { min-height: 44px; }
+  .phone-shell .row-menu-trigger,
+  .phone-shell .planning-menu-trigger { width: 44px; min-height: 44px; }
+
+  /* The existing standalone search page needs its own scroll container. */
+  .phone-shell .search-page { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: 24px; }
+}
+
+/* iPad 9 landscape is 1080 CSS pixels wide. Also useful on wider desktop windows. */
+@media (min-width: 960px) {
+  .phone-shell { display: grid; grid-template-columns: 200px minmax(0, 1fr); grid-template-rows: minmax(0, 1fr); }
+  .phone-shell .app-body { grid-column: 2; grid-row: 1; }
+  .phone-shell .topline .eyebrow { display: none; }
+
+  .phone-shell .bottom-window,
+  .phone-shell .bottom-window.chat-navigation {
+    grid-column: 1;
+    grid-row: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 0;
+    padding: max(24px, env(safe-area-inset-top)) 12px max(16px, env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left));
+    border-top: 0;
+    border-right: 1px solid var(--line);
+    overflow-y: auto;
+    background: var(--surface);
+  }
+  .phone-shell .sidebar-brand { display: block; padding: 0 12px 22px; font-size: 17px; font-weight: 650; }
+  .phone-shell .bottom-item,
+  .phone-shell .bottom-item.tablet-only {
+    display: flex;
+    flex: none;
+    min-width: 0;
+    min-height: 48px;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border-radius: 12px;
+    font-size: 14px;
+  }
+  .phone-shell .bottom-item .nav-icon { width: 22px; flex: none; text-align: center; }
+  .phone-shell .bottom-item:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+}

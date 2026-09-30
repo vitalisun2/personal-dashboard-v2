@@ -43,6 +43,7 @@ const titleInput = ref<HTMLInputElement | null>(null)
 const markdownInput = ref<HTMLTextAreaElement | null>(null)
 const nameField = ref<HTMLInputElement | null>(null)
 const searchInput = ref<HTMLInputElement | null>(null)
+let cacheReadGeneration = 0
 
 const tree = computed(() => {
   const children = (parentId: string | null): KnowledgeNode[] => nodes.value
@@ -110,17 +111,24 @@ function refreshPaths() {
   nodes.value = nodes.value.map(node => ({ ...node, path: pathFor(node) }))
 }
 async function commitNode(node: KnowledgeNode, baseVersion: number | null) {
+  // Discard cache reads started before or during this asynchronous local save.
+  ++cacheReadGeneration
   await queueKnowledgeUpsert(node, baseVersion)
+  ++cacheReadGeneration
   nodes.value = nodes.value.some(item => item.id === node.id)
     ? nodes.value.map(item => item.id === node.id ? node : item)
     : [...nodes.value, node]
 }
 async function load() {
-  try { nodes.value = await getCachedKnowledge() } catch (err) { setError(err) }
+  const generation = ++cacheReadGeneration
+  try {
+    const cached = await getCachedKnowledge()
+    if (generation === cacheReadGeneration) nodes.value = cached
+  } catch (err) { if (generation === cacheReadGeneration) setError(err) }
 }
 function handleSyncStatus(status: SyncStatus) {
   if (status === 'ready' || status === 'conflict') {
-    void getCachedKnowledge().then(cached => { nodes.value = cached }).catch(setError)
+    void load()
   }
 }
 let searchRevision = 0
@@ -186,7 +194,7 @@ watch(createOpen, open => {
   else void nextTick(() => nameField.value?.focus({ preventScroll: true }))
 })
 let unsubscribeSync: () => void = () => undefined
-const onOfflineDataUpdated = () => { void getCachedKnowledge().then(cached => { nodes.value = cached }).catch(setError) }
+const onOfflineDataUpdated = () => { void load() }
 onMounted(() => {
   void load()
   if (isSearching.value) scheduleSearch()
@@ -283,7 +291,9 @@ async function confirmDelete() {
   try {
     const deletingId = deleteTarget.value.id
     const deletePath = deleteTarget.value.path
+    ++cacheReadGeneration
     await queueKnowledgeDelete(deleteTarget.value)
+    ++cacheReadGeneration
     deleteTarget.value = null
     nodes.value = nodes.value.filter(node => node.id !== deletingId && !node.path.startsWith(`${deletePath} / `))
     if (documentId.value === deletingId || nodes.value.every(node => node.id !== documentId.value)) backToTree()
@@ -321,8 +331,9 @@ async function reorderNode(node: KnowledgeNode, targetId: string, placement: 'be
     if (node.parentId === parentId) {
       const ordered = childNodes(parentId).filter(item => item.id !== node.id)
       ordered.splice(position, 0, node)
+      ++cacheReadGeneration
       await queueKnowledgeReorder(node, ordered)
-      nodes.value = await getCachedKnowledge()
+      await load()
       return
     }
     const updated = { ...node, parentId, position, version: node.version + 1 }

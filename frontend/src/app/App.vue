@@ -10,7 +10,7 @@ const route = useRoute()
 const navigation = [
   { path: '/knowledge', label: 'База знаний', icon: '▤' },
   { path: '/planning', label: 'Планирование', icon: '▦' },
-  { path: '/tasks', label: 'Задачи', icon: '☑' },
+  { path: '/tasks', label: 'Задачи', icon: '☑\uFE0E' },
   { path: '/testing', label: 'Тестирование', icon: '◈' },
 ]
 const currentSection = computed(() => String(route.path.split('/')[1] || 'knowledge'))
@@ -132,7 +132,7 @@ onUnmounted(() => {
       <div v-if="pullDistance > 32" class="pull-refresh-indicator" role="status">
         {{ pullReady ? 'Отпустите для обновления' : 'Потяните для обновления' }}
       </div>
-      <div class="app-body" :class="{ 'is-pulling': pullDistance > 0 }" :style="{ transform: `translateY(${pullDistance}px)` }">
+      <div class="app-body" :class="{ 'is-pulling': pullDistance > 0 }" :style="pullDistance > 0 ? { transform: `translateY(${pullDistance}px)` } : undefined">
         <header class="topline">
           <div class="header-copy">
             <div class="eyebrow">Personal OS</div>
@@ -153,9 +153,13 @@ onUnmounted(() => {
           </RouterView>
         </div>
       </div>
-      <nav v-if="!hideBottomNav" class="bottom-window" aria-label="Навигация">
-        <RouterLink v-for="item in navigation" :key="item.path" :to="destinationForSection(item.path.slice(1))" class="bottom-item" :class="{ active: currentSection === item.path.slice(1) }">
+      <nav class="bottom-window" :class="{ 'chat-navigation': hideBottomNav }" aria-label="Навигация">
+        <div class="sidebar-brand">Personal OS</div>
+        <RouterLink v-for="item in navigation" :key="item.path" :to="destinationForSection(item.path.slice(1))" class="bottom-item" :class="{ active: currentSection === item.path.slice(1) }" :aria-current="currentSection === item.path.slice(1) ? 'page' : undefined">
           <span class="nav-icon" aria-hidden="true">{{ item.icon }}</span><span>{{ item.label }}</span>
+        </RouterLink>
+        <RouterLink class="bottom-item tablet-only" :class="{ active: currentSection === 'chat' }" :to="destinationForChat()" :aria-current="currentSection === 'chat' ? 'page' : undefined">
+          <span class="nav-icon" aria-hidden="true">◌</span><span>Агент</span>
         </RouterLink>
       </nav>
     </div>

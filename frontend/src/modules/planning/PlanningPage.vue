@@ -449,11 +449,12 @@ function positionContextMenu() {
   const phone = document.querySelector<HTMLElement>('.phone-shell'); if (!phone) return
   const phoneRect = phone.getBoundingClientRect()
   const width = menuEl.offsetWidth || 224, height = menuEl.offsetHeight
-  const leftLimit = 8, rightLimit = phoneRect.width - 8
+  const contentRect = document.querySelector<HTMLElement>('.page-content')?.getBoundingClientRect() ?? phoneRect
+  const leftLimit = Math.max(contentRect.left - phoneRect.left + 8, 8)
+  const rightLimit = Math.min(contentRect.right - phoneRect.left - 8, phoneRect.width - 8)
   const topline = document.querySelector<HTMLElement>('.topline')?.getBoundingClientRect()
-  const navTop = document.querySelector<HTMLElement>('.bottom-window')?.getBoundingClientRect().top ?? phoneRect.bottom
   const topLimit = Math.max((topline?.bottom ?? phoneRect.top) - phoneRect.top + 8, 8)
-  const bottomLimit = Math.max(navTop - 8 - phoneRect.top, topLimit + 40)
+  const bottomLimit = Math.max(contentRect.bottom - 8 - phoneRect.top, topLimit + 40)
   let x: number, y: number
   if (state.menuPoint) {
     x = state.menuPoint.x + 8 - phoneRect.left
