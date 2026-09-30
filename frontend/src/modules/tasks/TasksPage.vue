@@ -101,6 +101,7 @@ const renamingKey = computed(() => state.renaming ? (state.renaming.kind === 'se
 const renamingValue = computed({ get: () => state.renaming?.value ?? '', set: (value: string) => { if (state.renaming) state.renaming.value = value } })
 const filters = [{ value: 'all', label: 'Все', dot: '' }, { value: 'New', label: 'Новые', dot: 'new' }, { value: 'InProgress', label: 'В работе', dot: 'work' }, { value: 'Done', label: 'Готово', dot: 'done' }]
 const archiveFilters = filters
+const archiveGroupLabel = 'Перенести все задачи группы в архив'
 
 const rootEl = ref<HTMLElement | null>(null)
 const groupsEl = ref<HTMLElement | null>(null)
@@ -195,14 +196,22 @@ function menuItemsFor(kind: 'task' | 'section' | 'project', id: string): MenuIte
     const items: MenuItem[] = []
     if (state.bucket === 'Сегодня') {
       const completed = tasks.filter(task => statusName(task.workStatus) === 'Done')
-      if (tasks.length) items.push({ label: 'Переместить задачи раздела в архив', action: () => archiveSectionTasks(section?.name || 'Личное', tasks) })
+      if (tasks.length) items.push({ label: 'Вернуть все задачи группы в Backlog', action: () => { void moveGroupTasks(tasks, 'backlog') } })
+      if (tasks.length) items.push({ label: archiveGroupLabel, action: () => archiveGroupTasks(section?.name || 'Личное', tasks) })
       if (completed.length) items.push({ label: 'Переместить готовые в архив', action: () => archiveCompletedTasks(section?.name || 'Личное', completed) })
     }
-    if (!section) return items
+    if (!section) {
+      if (state.bucket === 'Backlog' && tasks.length) {
+        items.push({ label: 'Перенести все задачи группы в Сегодня', action: () => { void moveGroupTasks(tasks, 'today') } })
+        items.push({ label: archiveGroupLabel, action: () => archiveGroupTasks('Личное', tasks) })
+      }
+      return items
+    }
     if (state.bucket === 'Backlog') {
       items.push({ label: 'Переименовать', action: () => startRename('section', section.id) })
+      if (tasks.length) items.push({ label: 'Перенести все задачи группы в Сегодня', action: () => { void moveGroupTasks(tasks, 'today') } })
       const anySectionTasks = state.allTasks.some(task => task.sectionId === section.id)
-      const label = tasks.length ? 'Переместить задачи в архив' : anySectionTasks ? 'Убрать из Backlog' : 'Удалить раздел'
+      const label = tasks.length ? archiveGroupLabel : anySectionTasks ? 'Убрать из Backlog' : 'Удалить раздел'
       items.push({ label, danger: true, action: () => deleteSectionFlow(section, tasks, anySectionTasks) })
     }
     return items
@@ -214,10 +223,14 @@ function menuItemsFor(kind: 'task' | 'section' | 'project', id: string): MenuIte
   const items: MenuItem[] = []
   if (state.bucket === 'Сегодня') {
     const completed = tasks.filter(task => statusName(task.workStatus) === 'Done')
-    if (tasks.length) items.push({ label: 'Переместить задачи группы в архив', action: () => archiveSectionTasks(state.projects.find(project => project.id === id)?.title || 'Проект', tasks) })
+    if (tasks.length) items.push({ label: 'Вернуть все задачи группы в Backlog', action: () => { void moveGroupTasks(tasks, 'backlog') } })
+    if (tasks.length) items.push({ label: archiveGroupLabel, action: () => archiveGroupTasks(state.projects.find(project => project.id === id)?.title || 'Проект', tasks) })
     if (completed.length) items.push({ label: 'Переместить готовые в архив', action: () => archiveCompletedTasks(state.projects.find(project => project.id === id)?.title || 'Проект', completed) })
   }
-  if (state.bucket === 'Backlog' && tasks.length) items.push({ label: 'Переместить задачи в архив', action: () => deleteProjectGroupFlow(id, tasks) })
+  if (state.bucket === 'Backlog' && tasks.length) {
+    items.push({ label: 'Перенести все задачи группы в Сегодня', action: () => { void moveGroupTasks(tasks, 'today') } })
+    items.push({ label: archiveGroupLabel, action: () => deleteProjectGroupFlow(id, tasks) })
+  }
   return items
 }
 function openMenuAt(key: string, point: { x: number; y: number } | null) {
@@ -347,8 +360,11 @@ function toggleSectionFor(key: string) {
 function isExpanded(key: string) { return activeExpanded.value.has(key) }
 function toggleOrderMode() { closeMenu(); swipe = null; clearGhost(); clearDragMarks(); drag = null; state.orderMode = !state.orderMode }
 async function moveTaskVia(task: Task, target: 'today' | 'backlog') {
-  await mutate(task, target)
+  return mutate(task, target)
 
+}
+async function moveGroupTasks(tasks: Task[], target: 'today' | 'backlog') {
+  for (const task of tasks) if (!await moveTaskVia(task, target)) break
 }
 async function advanceTask(task: Task) {
   const s = statusName(task.workStatus)
@@ -364,15 +380,16 @@ function archiveCompletedTasks(sectionName: string, tasks: Task[]) {
     title: `Переместить готовые задачи раздела «${sectionName}» в архив?`,
     body: 'Выполненные задачи можно будет найти в архиве. Раздел и незавершённые задачи останутся на месте.',
     confirmLabel: 'В архив',
-    onConfirm: () => { void (async () => { for (const task of tasks) await mutate(task, 'archive') })() },
+    onConfirm: () => { void (async () => { for (const task of tasks) if (!await mutate(task, 'archive')) break })() },
   })
 }
-function archiveSectionTasks(sectionName: string, tasks: Task[]) {
+function archiveGroupTasks(groupName: string, tasks: Task[]) {
+  const source = state.bucket, other = source === 'Сегодня' ? 'Backlog' : 'Сегодня'
   askConfirm({
-    title: `Переместить задачи раздела «${sectionName}» в архив?`,
-    body: `${tasks.length} задач из Сегодня перейдут в архив. Задачи этого раздела в Backlog останутся на месте.`,
+    title: `Перенести задачи группы «${groupName}» в архив?`,
+    body: `${tasks.length} задач из ${source} перейдут в архив. Задачи этой группы в ${other} останутся на месте.`,
     confirmLabel: 'В архив',
-    onConfirm: () => { void (async () => { for (const task of tasks) await mutate(task, 'archive') })() },
+    onConfirm: () => { void (async () => { for (const task of tasks) if (!await mutate(task, 'archive')) break })() },
   })
 }
 function deleteSectionFlow(section: Section, tasks: Task[], hasRelatedTasks: boolean) {
@@ -403,7 +420,7 @@ function deleteProjectGroupFlow(projectId: string, tasks: Task[]) {
     title: `Переместить задачи проекта «${title}» в архив?`,
     body: `${tasks.length} задач будут перемещены в архив.`,
     confirmLabel: 'В архив',
-    onConfirm: () => { void (async () => { for (const task of tasks) await mutate(task, 'archive'); })() },
+    onConfirm: () => { void (async () => { for (const task of tasks) if (!await mutate(task, 'archive')) break })() },
   })
 }
 
@@ -779,14 +796,14 @@ async function refresh() {
 function onOfflineDataUpdated() { void refresh() }
 
 async function mutate(task: Task, suffix: string, method = 'POST', body: object = { expectedVersion: task.version }) {
-  try { await request(`/${task.id}/${suffix}`, { method, body: JSON.stringify(body) }); await refresh() } catch (error) {
+  try { await request(`/${task.id}/${suffix}`, { method, body: JSON.stringify(body) }); await refresh(); return true } catch (error) {
     if (error instanceof LocalMutation) {
       const operation = suffix === 'archive' ? 'archive' : suffix === 'restore' ? 'restore' : suffix === 'section' ? 'update' : suffix === 'status' ? 'setWorkStatus' : 'move'
       const placement = suffix === 'status' || suffix === 'section' ? task.location : suffix === 'today' ? 'today' : suffix === 'backlog' || suffix === 'restore' ? 'backlog' : suffix === 'planning' ? 'planned' : 'archived'
       const payload = suffix === 'section'
         ? { operation: 'update', kind: 'task', id: task.id, expectedVersion: task.version, sectionId: (body as { sectionId: string }).sectionId }
       : { operation, kind: 'task', id: task.id, expectedVersion: task.version, placement, workStatus: suffix === 'status' ? (body as { status: string }).status : statusName(task.workStatus) === 'InProgress' ? 'inProgress' : statusName(task.workStatus).toLowerCase(), sectionId: suffix === 'planning' ? null : task.sectionId, ...(suffix === 'planning' && task.projectId && task.milestoneId && task.featureId ? { planning: { projectId: task.projectId, milestoneId: task.milestoneId, featureId: task.featureId } } : {}) }
-      const local = { ...task, sectionId: suffix === 'section' ? (body as { sectionId: string }).sectionId : task.sectionId, workStatus: suffix === 'status' ? (body as { status: string }).status : suffix === 'restore' || suffix === 'backlog' ? 'new' : task.workStatus, location: suffix === 'section' ? task.location : placement, version: task.version + 1 }
+      const local = { ...task, sectionId: suffix === 'section' ? (body as { sectionId: string }).sectionId : task.sectionId, workStatus: suffix === 'status' ? (body as { status: string }).status : suffix === 'restore' || suffix === 'backlog' || suffix === 'today' ? 'new' : task.workStatus, location: suffix === 'section' ? task.location : placement, version: task.version + 1 }
       if (suffix === 'archive') local.archivedSectionName = state.sections.find(section => section.id === task.sectionId)?.name || task.archivedSectionName
       state.allTasks = state.allTasks.map(item => item.id === task.id ? local : item)
       await queueTask('tasks.task', task.id, task.version, payload, false, local)
@@ -802,9 +819,9 @@ async function mutate(task: Task, suffix: string, method = 'POST', body: object 
       }
       if (state.detail?.id === task.id) state.detail = local
       await cacheRows('tasks.task', state.tasks, true)
-      state.error = ''; return
+      state.error = ''; return true
     }
-    state.error = (error as Error).message; await refresh()
+    state.error = (error as Error).message; await refresh(); return false
   }
 }
 async function saveDetail() {
