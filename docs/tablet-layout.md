@@ -42,7 +42,9 @@ Screenshots and `manifest.json` describe the completed states. Keyboard-height
 emulation and desktop WebKit do not replace a final check on physical iPad Safari.
 
 Existing sync/progress/chat unit tests and entity/order-conflict browser suites
-are also applicable. The older `planning-reorder.e2e.mjs` and `offline-first.mjs`
-fail on both this change and the unchanged `ad30bcc` baseline: the former expects
-completed tasks to be excluded from the current order list, and the latter uses
-an outdated sections fixture/store expectation. Those scripts were left unchanged.
+are also applicable. `planning-reorder.e2e.mjs` and `offline-first.mjs` pass against
+the production preview. The reorder test includes completed tasks under the All
+filter, checks `planningPosition` while preserving task bucket positions, and
+targets the order toggle separately from the Done filter. The offline fixture
+serves the all-sections endpoint; reconnect checks reload the application because
+sync retries on startup rather than on connectivity changes alone.

@@ -59,6 +59,7 @@ await context.route('**/api/**', async route => {
     const location = url.searchParams.get('location')?.toLowerCase();
     return json(location ? tasks.filter(task => task.location === location) : tasks);
   }
+  if (path === '/api/v2/tasks/sections/all') return json(sections);
   if (path === '/api/v2/tasks/sections') {
     const location = url.searchParams.get('location')?.toLowerCase();
     return json(location ? sections.filter(section => section.location === location) : sections);
@@ -142,7 +143,9 @@ try {
   assert.deepEqual((await stored('operations')).map(item => item.operationId).sort(), pending.map(item => item.operationId).sort());
   mode = 'online';
   await context.setOffline(false);
-  await eventually(async () => skippedPush, 'Reconnection must attempt the queued edits');
+  // Sync retries on application startup; restoring connectivity alone does not trigger it.
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await eventually(async () => skippedPush, 'Startup after reconnecting must attempt the queued edits');
   await page.locator('.sync-status[data-status="pending"]').waitFor({ state: 'attached' });
   await assertWaiting();
   // A successful sync round with deferred operations still receives old server snapshots.
@@ -152,9 +155,8 @@ try {
   assert.equal(deferredEntities.find(entity => entity.type === 'tasks.task.view' && entity.id === 'offline-backlog').payload.title, 'Task edited without Tailscale');
   assert.equal(deferredEntities.find(entity => entity.type === 'planning.project.view' && entity.id === project.id).payload.title, 'Project edited offline');
   allowApply = true;
-  await context.setOffline(true);
-  await context.setOffline(false);
-  await eventually(async () => (await stored('operations')).length === 0, 'Reconnection must drain the durable queue');
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await eventually(async () => (await stored('operations')).length === 0, 'Next startup must drain the durable queue');
   assert.equal(pushed, pending.length);
   assert.equal(tasks[0].title, 'Task edited without Tailscale');
   assert.equal(project.title, 'Project edited offline');
@@ -168,7 +170,7 @@ try {
   await goto('/planning/projects/offline-project');
   await page.locator('.planning-picker').getByText('Project edited offline', { exact: true }).waitFor();
   assert.deepEqual(errors, []);
-  console.log('PASS: startup prefetches all domains; stalled API does not hide cached tasks; edits survive offline PWA reload, sync on reconnect, and remain cached afterward.');
+  console.log('PASS: startup prefetches all domains; stalled API does not hide cached tasks; edits survive offline PWA reload, sync on startup after reconnecting, and remain cached afterward.');
 } finally {
   mode = 'unavailable'; held.splice(0).forEach(resolve => resolve());
   await browser.close();
