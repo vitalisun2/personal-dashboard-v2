@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { getOfflineStore, saveOfflineMutation } from '../../offline/runtime'
 import type { OfflineEntity, SyncOperation } from '../../offline/types'
 import ReorderHandle from '../../shared/ReorderHandle.vue'
@@ -50,6 +50,20 @@ const taskFilters = [
 ]
 const taskProgress = computed(() => featureTaskProgress(linkedTasks.value))
 const detailTask = computed(() => state.detailTaskId ? state.tasks.find(item => item.id === state.detailTaskId) || null : null)
+const breadcrumbs = computed(() => {
+  if (!project.value || !milestone.value) return []
+  const projectPath = `/planning/projects/${project.value.id}`
+  const milestonePath = `${projectPath}/milestones/${milestone.value.id}`
+  const items = [{ title: project.value.title, path: projectPath }]
+  if (feature.value) items.push({ title: milestone.value.title, path: milestonePath })
+  if (feature.value && detailTask.value) items.push({ title: feature.value.title, path: `${milestonePath}/features/${feature.value.id}` })
+  return items
+})
+function backFromDetail() {
+  if (detailTask.value) state.detailTaskId = ''
+  else if (feature.value && milestone.value) goMilestone(milestone.value.id)
+  else if (project.value) goProject(project.value.id)
+}
 const editMilestone = computed(() => project.value?.milestones.find(item => item.id === state.editId) || null)
 const editProject = computed(() => state.projects.find(item => item.id === state.editId) || null)
 const editFeature = computed(() => {
@@ -716,6 +730,16 @@ onBeforeUnmount(() => {
       <button class="plus" type="button" aria-label="Добавить проект" @click="startCreate('project')">＋</button>
     </div>
 
+    <div v-if="depth > 1" class="detail-navigation planning-navigation">
+      <button class="doc-action doc-back" type="button" @click="backFromDetail">← Назад</button>
+      <nav class="planning-breadcrumbs" aria-label="Путь в планировании">
+        <template v-for="(item, index) in breadcrumbs" :key="item.path">
+          <span v-if="index" aria-hidden="true">·</span>
+          <RouterLink :to="item.path" @click="state.detailTaskId = ''">{{ item.title }}</RouterLink>
+        </template>
+      </nav>
+    </div>
+
     <div v-if="state.busy && !project" class="planning-empty">Загружаем план…</div>
     <div v-else-if="!project" class="planning-empty">Создайте проект, чтобы начать планирование.</div>
     <div v-else ref="scrollRef" class="scroll planning-scroll">
@@ -747,9 +771,7 @@ onBeforeUnmount(() => {
       </template>
 
       <template v-else-if="milestone && depth === 2">
-        <button class="doc-action doc-back planning-inline-back" type="button" @click="goProject(project.id)">← Назад</button>
         <div class="planning-head-card">
-          <div class="planning-kicker">{{ project.title }}</div>
           <div class="planning-head-main">
             <button class="planning-head-title" type="button" @click="startEdit('milestone', milestone)">{{ milestone.title }}</button>
             <div class="planning-epic-progress" :aria-label="`Прогресс эпика: ${epicProgress(milestone)}%, завершено ${completedFeatures} из ${milestone.features.length} фич`">
@@ -779,8 +801,6 @@ onBeforeUnmount(() => {
 
       <template v-else-if="feature && milestone">
         <template v-if="state.detailTaskId && detailTask">
-          <button class="doc-action doc-back planning-inline-back" type="button" @click="state.detailTaskId = ''">← Назад</button>
-          <div class="planning-task-context">{{ project.title }} · {{ milestone.title }} · {{ feature.title }}</div>
           <button v-if="state.editingKind !== 'title'" class="planning-detail-title" type="button" @click="startInlineEdit('title')">{{ detailTask.title }}</button>
           <input v-else ref="titleInputRef" class="planning-detail-title-input" type="text" maxlength="120" v-model="state.editDraft" @blur="finishInlineEdit('title', true)" @keydown.enter.prevent="finishInlineEdit('title', true)" @keydown.esc.stop.prevent="finishInlineEdit('title', false)" />
           <div class="planning-description-card">
@@ -797,9 +817,7 @@ onBeforeUnmount(() => {
           </div>
         </template>
         <template v-else>
-          <button class="doc-action doc-back planning-inline-back" type="button" @click="goMilestone(milestone.id)">← Назад</button>
           <div class="planning-head-card planning-feature-head">
-            <div class="planning-kicker">{{ project.title }} · {{ milestone.title }}</div>
             <div class="planning-head-main">
               <button class="planning-head-title" type="button" @click="startEdit('feature', feature)">{{ feature.title }}</button>
             </div>

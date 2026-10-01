@@ -2,6 +2,11 @@
    The shared .planning-* theme (toolbar, picker, rows, detail, sheet, order mode,
    context menu, confirm layer) lives in shared/styles.css under .phone-shell. */
 .planning-section.planning-page { position: static; }
+.phone-shell .planning-navigation { padding-top: 15px; }
+.phone-shell .planning-breadcrumbs { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 6px; margin: 11px 2px 6px; color: var(--muted); font-size: 13.2px; line-height: 1.4; }
+.phone-shell .planning-breadcrumbs a { min-width: 0; color: var(--text-secondary); overflow-wrap: anywhere; text-decoration: underline; text-underline-offset: 3px; }
+.phone-shell .planning-breadcrumbs a:hover { color: var(--text); }
+.phone-shell .planning-breadcrumbs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 2px; }
 .phone-shell .planning-feature-progress { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.5; }
 .phone-shell .planning-feature-progress > span:first-child { flex-basis: 100%; }
 .phone-shell .planning-feature-excluded { flex-basis: 100%; font-size: 11px; }

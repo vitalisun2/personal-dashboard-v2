@@ -155,8 +155,8 @@ button { border: 0; background: transparent; cursor: pointer; }
 .phone-shell .doc-action{min-height:38px;border-radius:11px;padding:0 12px;background:var(--surface);color:var(--text-secondary);font-size:13px;font-weight:620}
 .phone-shell .doc-action:hover{background:var(--surface-2)}
 .phone-shell .doc-back{color:var(--text)}
-.phone-shell #docFX{padding:10px 0 24px}
-.phone-shell .doc-detail-top{display:flex;align-items:center;margin-top:6px}
+.phone-shell .detail-navigation{flex:none;padding:16px 0 0;background:var(--bg)}
+.phone-shell #docFX{padding:0 0 24px}
 .phone-shell .doc-detail-back{border:1px solid var(--line);color:var(--text);font-weight:650}
 .phone-shell .doc-title-wrap{margin-top:16px}
 .phone-shell .doc-open-title{display:block;width:100%;padding:0;border:0;background:transparent;color:var(--text);text-align:left;font-size:26px;line-height:1.14;font-weight:820;letter-spacing:-.02em}
@@ -218,9 +218,7 @@ button { border: 0; background: transparent; cursor: pointer; }
 .phone-shell .planning-milestone-progress strong{display:block;font-size:12px;color:var(--text-secondary);font-weight:700}
 .phone-shell .planning-milestone-progress .planning-progress-track{height:4.2px;margin-top:5px}
 .phone-shell .planning-row-arrow{color:var(--muted);font-size:18px;text-align:center}
-.phone-shell .planning-inline-back{display:block;margin:15px 0 11px;text-align:left}
 .phone-shell .planning-head-card{padding:2px 2px 12px;margin-bottom:8px}
-.phone-shell .planning-kicker{font-size:11px;color:var(--muted);margin-bottom:6px}
 .phone-shell .planning-head-main{display:flex;align-items:center;justify-content:space-between;gap:10px}
 .phone-shell .planning-epic-progress{flex:0 0 104px;max-width:45%;text-align:right}
 .phone-shell .planning-epic-progress>strong{display:block;font-size:18px;font-weight:720;color:var(--accent)}
@@ -251,7 +249,6 @@ button { border: 0; background: transparent; cursor: pointer; }
 .phone-shell .planning-task-state{color:var(--muted);font-size:11.5px;font-weight:680}
 .phone-shell .planning-task-state.completed{color:var(--success)}
 .phone-shell .planning-task-state.in_progress{color:var(--accent)}
-.phone-shell .planning-task-context{font-size:11px;line-height:1.4;color:var(--muted);margin:1px 2px 6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .phone-shell .planning-detail-title{display:block;width:100%;padding:0;color:var(--text);text-align:left;font-size:25px;line-height:1.18;font-weight:760;margin:0 0 14px}
 .phone-shell .planning-detail-title-input{width:100%;border:1px solid var(--line-strong);border-radius:11px;background:var(--bg);color:var(--text);padding:8px 10px;font-size:25px;font-weight:760;line-height:1.18;outline:none;margin:0 0 14px}
 .phone-shell .planning-description-card{background:linear-gradient(145deg,var(--surface),var(--surface-2));border-radius:14px;padding:13px 14px;margin-top:2px}
@@ -345,8 +342,7 @@ button { border: 0; background: transparent; cursor: pointer; }
 .phone-shell .tasks-section .task-drop-before::before,.phone-shell .tasks-section .task-drop-after::after{position:absolute;z-index:6;left:15px;right:42px;height:2px;border-radius:2px;background:var(--accent);content:""}
 .phone-shell .tasks-section .task-drop-before::before{top:0}
 .phone-shell .tasks-section .task-drop-after::after{bottom:0}
-.phone-shell .tasks-section .task-detail{padding:10px 0 24px}
-.phone-shell .tasks-section .task-detail-top{display:flex;align-items:center;margin-top:6px}
+.phone-shell .tasks-section .task-detail{padding:0 0 24px}
 .phone-shell .tasks-section .task-detail-back{min-height:38px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:var(--surface);color:var(--text);font-size:13px;font-weight:650}
 .phone-shell .tasks-section .task-detail-meta{display:flex;align-items:center;gap:8px;margin-top:12px}
 .phone-shell .tasks-section .task-detail-section{display:block;color:var(--text-secondary);font-size:13px;font-weight:650}

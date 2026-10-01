@@ -925,32 +925,34 @@ onBeforeUnmount(() => {
   <section class="tasks-section" ref="rootEl" aria-labelledby="tasks-heading" @click.capture="suppressCapture">
     <div v-if="state.error" class="task-error" role="alert">{{ state.error }} <button :aria-label="'Закрыть'" @click="state.error = ''">×</button></div>
 
-    <section v-if="state.detail" class="scroll task-detail">
-      <div class="task-detail-top">
+    <template v-if="state.detail">
+      <div class="detail-navigation">
         <button type="button" class="doc-action doc-back task-detail-back" @click="closeDetail">← Назад</button>
       </div>
-      <div class="task-detail-meta">
-        <button v-if="detailPlanningPath" type="button" class="task-detail-section task-detail-path" @click="router.push(`/planning/projects/${state.detail.projectId}/milestones/${state.detail.milestoneId}/features/${state.detail.featureId}`)">{{ detailPlanningPath }}</button>
-        <span v-else class="task-detail-section">{{ detailOrigin }}</span>
-        <button type="button" class="task-link-edit" :aria-label="detailPlanningPath ? 'Изменить фичу' : 'Назначить фичу'" @click="openLinkSheet">{{ detailPlanningPath ? '✎' : 'Назначить фичу' }}</button>
-      </div>
-      <div class="task-detail-title-wrap">
-        <button v-if="state.detailEditing !== 'title'" type="button" class="task-title-open" @click="startTitleEdit">{{ state.detail.title }}</button>
-        <input v-else ref="titleInputEl" v-model="state.title" class="task-title-detail-input" type="text" maxlength="160" @keydown.enter.prevent="finishTitleEdit(true)" @keydown.esc.prevent="finishTitleEdit(false)" @blur="finishTitleEdit(true)" @click.stop />
-      </div>
-      <div class="task-detail-description-card">
-        <div v-if="state.detailEditing !== 'description'" class="task-description" @click="startDescEdit">{{ state.detail.description || 'Описание пока не добавлено.' }}</div>
-        <textarea v-else ref="descriptionInputEl" v-model="state.description" class="task-description-input" @keydown.esc.prevent="finishDescEdit(false)" @blur="finishDescEdit(true)" @click.stop></textarea>
-      </div>
-      <div class="task-detail-bottom-actions">
-        <button type="button" class="task-detail-pill action-move" @click="detailMove">{{ detailMoveLabel }}</button>
-        <button v-if="isToday(state.detail)" type="button" class="task-detail-pill action-status" :class="workState(state.detail.workStatus)" @click="advanceTask(state.detail)">{{ workLabel(state.detail.workStatus) }}</button>
-        <button v-if="!isArchived(state.detail)" type="button" class="task-detail-pill action-move action-archive" @click="archiveTask(state.detail)">В архив</button>
-        <button v-else type="button" class="task-delete-icon" aria-label="Удалить задачу навсегда" @click="deleteArchivedTask(state.detail)">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 13h10l1-13"/><path d="M10 11v5M14 11v5"/></svg>
-        </button>
-      </div>
-    </section>
+      <section class="scroll task-detail">
+        <div class="task-detail-meta">
+          <button v-if="detailPlanningPath" type="button" class="task-detail-section task-detail-path" @click="router.push(`/planning/projects/${state.detail.projectId}/milestones/${state.detail.milestoneId}/features/${state.detail.featureId}`)">{{ detailPlanningPath }}</button>
+          <span v-else class="task-detail-section">{{ detailOrigin }}</span>
+          <button type="button" class="task-link-edit" :aria-label="detailPlanningPath ? 'Изменить фичу' : 'Назначить фичу'" @click="openLinkSheet">{{ detailPlanningPath ? '✎' : 'Назначить фичу' }}</button>
+        </div>
+        <div class="task-detail-title-wrap">
+          <button v-if="state.detailEditing !== 'title'" type="button" class="task-title-open" @click="startTitleEdit">{{ state.detail.title }}</button>
+          <input v-else ref="titleInputEl" v-model="state.title" class="task-title-detail-input" type="text" maxlength="160" @keydown.enter.prevent="finishTitleEdit(true)" @keydown.esc.prevent="finishTitleEdit(false)" @blur="finishTitleEdit(true)" @click.stop />
+        </div>
+        <div class="task-detail-description-card">
+          <div v-if="state.detailEditing !== 'description'" class="task-description" @click="startDescEdit">{{ state.detail.description || 'Описание пока не добавлено.' }}</div>
+          <textarea v-else ref="descriptionInputEl" v-model="state.description" class="task-description-input" @keydown.esc.prevent="finishDescEdit(false)" @blur="finishDescEdit(true)" @click.stop></textarea>
+        </div>
+        <div class="task-detail-bottom-actions">
+          <button type="button" class="task-detail-pill action-move" @click="detailMove">{{ detailMoveLabel }}</button>
+          <button v-if="isToday(state.detail)" type="button" class="task-detail-pill action-status" :class="workState(state.detail.workStatus)" @click="advanceTask(state.detail)">{{ workLabel(state.detail.workStatus) }}</button>
+          <button v-if="!isArchived(state.detail)" type="button" class="task-detail-pill action-move action-archive" @click="archiveTask(state.detail)">В архив</button>
+          <button v-else type="button" class="task-delete-icon" aria-label="Удалить задачу навсегда" @click="deleteArchivedTask(state.detail)">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 13h10l1-13"/><path d="M10 11v5M14 11v5"/></svg>
+          </button>
+        </div>
+      </section>
+    </template>
 
     <div v-else class="task-board">
       <div v-if="!state.archive" class="task-toolbar">

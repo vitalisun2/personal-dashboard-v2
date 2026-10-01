@@ -357,22 +357,24 @@ function clearSearch() {
   <section id="knowledgeFX" class="knowledge-section" aria-label="База знаний">
       <p v-if="error" class="knowledge-error" role="alert">{{ error }}</p>
 
-    <div v-if="document" id="docFX" class="scroll">
-      <div class="doc-detail-top">
+    <template v-if="document">
+      <div class="detail-navigation">
         <button type="button" class="doc-action doc-back doc-detail-back" @click="backToTree">← Назад</button>
       </div>
-      <div class="doc-title-wrap">
-        <button v-if="!titleEditing" type="button" class="doc-open-title" @click="editTitle">{{ document.title }}</button>
-        <input v-else ref="titleInput" class="doc-title-input" type="text" :value="document.title" aria-label="Название документа" @blur="saveDocumentTitle" @keydown.enter="($event.target as HTMLInputElement).blur()" @keydown.esc="cancelTitleEdit">
+      <div id="docFX" class="scroll">
+        <div class="doc-title-wrap">
+          <button v-if="!titleEditing" type="button" class="doc-open-title" @click="editTitle">{{ document.title }}</button>
+          <input v-else ref="titleInput" class="doc-title-input" type="text" :value="document.title" aria-label="Название документа" @blur="saveDocumentTitle" @keydown.enter="($event.target as HTMLInputElement).blur()" @keydown.esc="cancelTitleEdit">
+        </div>
+        <div class="doc-content-card">
+          <div v-if="!markdownEditing" class="doc-open-content" @click="editMarkdown">{{ document.markdown || 'Новый документ. Содержимое пока пустое.' }}</div>
+          <textarea v-else ref="markdownInput" class="doc-content-input" :value="document.markdown" placeholder="Новый документ. Содержимое пока пустое." aria-label="Содержимое документа" @blur="saveMarkdown" @keydown.esc="cancelMarkdownEdit" />
+        </div>
+        <div class="doc-detail-bottom-actions">
+          <button type="button" class="doc-delete-icon" aria-label="Удалить документ" title="Удалить документ" @click="deleteTarget = document"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 13h10l1-13"/><path d="M10 11v5M14 11v5"/></svg></button>
+        </div>
       </div>
-      <div class="doc-content-card">
-        <div v-if="!markdownEditing" class="doc-open-content" @click="editMarkdown">{{ document.markdown || 'Новый документ. Содержимое пока пустое.' }}</div>
-        <textarea v-else ref="markdownInput" class="doc-content-input" :value="document.markdown" placeholder="Новый документ. Содержимое пока пустое." aria-label="Содержимое документа" @blur="saveMarkdown" @keydown.esc="cancelMarkdownEdit" />
-      </div>
-      <div class="doc-detail-bottom-actions">
-        <button type="button" class="doc-delete-icon" aria-label="Удалить документ" title="Удалить документ" @click="deleteTarget = document"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="m6 7 1 13h10l1-13"/><path d="M10 11v5M14 11v5"/></svg></button>
-      </div>
-    </div>
+    </template>
 
     <template v-else>
       <div class="toolbar" :class="{ 'search-expanded': isSearching }">
