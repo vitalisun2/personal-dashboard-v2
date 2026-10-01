@@ -344,7 +344,6 @@ function openTask(task: Task) { if (!state.orderMode && Date.now() >= suppressOp
 function closeDetail() { state.detailEditing = ''; void router.push('/tasks') }
 function selectBucket(bucket: 'Backlog' | 'Сегодня') { closeMenu(); state.bucket = bucket; state.archive = false; state.orderMode = false; state.filter = 'all'; state.detail = null; state.title = ''; state.description = ''; void router.replace('/tasks').then(refresh) }
 function openArchive() { closeMenu(); state.orderMode = false; state.filter = 'all'; state.archive = true; if (route.path !== '/tasks') { void router.replace('/tasks') } else { void refresh() } }
-function closeArchive() { closeMenu(); state.orderMode = false; state.filter = 'all'; state.archive = false; void refresh() }
 function toggleAllSections() {
   const keys = visibleGroups.value.map(g => g.key)
   const open = keys.length > 0 && keys.every(key => activeExpanded.value.has(key))
@@ -955,25 +954,21 @@ onBeforeUnmount(() => {
     </template>
 
     <div v-else class="task-board">
-      <div v-if="!state.archive" class="task-toolbar">
+      <div class="task-toolbar">
         <div class="task-tabs" role="tablist" aria-label="Режим задач">
-          <button type="button" class="task-tab" :class="{ active: state.bucket === 'Backlog' }" @click="selectBucket('Backlog')">Backlog</button>
-          <button type="button" class="task-tab" :class="{ active: state.bucket === 'Сегодня' }" @click="selectBucket('Сегодня')">Сегодня</button>
+          <button type="button" class="task-tab" :class="{ active: !state.archive && state.bucket === 'Backlog' }" @click="selectBucket('Backlog')">Backlog</button>
+          <button type="button" class="task-tab" :class="{ active: !state.archive && state.bucket === 'Сегодня' }" @click="selectBucket('Сегодня')">Сегодня</button>
+          <button type="button" class="task-tab" :class="{ active: state.archive }" @click="openArchive">Архив</button>
         </div>
         <div class="task-toolbar-actions">
           <button type="button" class="task-icon-button" :aria-label="allOpen ? 'Свернуть все разделы' : 'Развернуть все разделы'" :title="allOpen ? 'Свернуть все разделы' : 'Развернуть все разделы'" @click="toggleAllSections">
             <svg viewBox="0 0 20 20" aria-hidden="true"><path :d="allOpen ? 'M5 3 10 8 15 3' : 'M5 8 10 3 15 8'"/><path :d="allOpen ? 'M5 17 10 12 15 17' : 'M5 12 10 17 15 12'"/></svg>
           </button>
-          <button type="button" class="order-mode-toggle" :aria-pressed="state.orderMode" :aria-label="state.orderMode ? 'Выключить сортировку' : 'Включить сортировку'" :title="state.orderMode ? 'Выключить сортировку' : 'Включить сортировку'" @click="toggleOrderMode">
+          <button v-if="!state.archive" type="button" class="order-mode-toggle" :aria-pressed="state.orderMode" :aria-label="state.orderMode ? 'Выключить сортировку' : 'Включить сортировку'" :title="state.orderMode ? 'Выключить сортировку' : 'Включить сортировку'" @click="toggleOrderMode">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h11M4 17h11M19 6v12m-2.5-2.5L19 18l2.5-2.5"/></svg>
           </button>
-          <button v-if="state.bucket === 'Backlog'" type="button" class="plus" aria-label="Создать задачу или раздел" @click="openCreateSheet">＋</button>
+          <button v-if="!state.archive && state.bucket === 'Backlog'" type="button" class="plus" aria-label="Создать задачу или раздел" @click="openCreateSheet">＋</button>
         </div>
-      </div>
-
-      <div v-if="state.archive" class="task-archive-top">
-        <button type="button" class="task-archive-back" @click="closeArchive">← Назад</button>
-        <div class="task-archive-title">Архив</div>
       </div>
 
       <div v-if="!state.archive && location === 'Today'" class="task-filters">
@@ -1047,9 +1042,6 @@ onBeforeUnmount(() => {
         <div v-if="showEmpty" class="task-empty">{{ emptyText }}</div>
       </div>
 
-      <div v-show="location === 'Today' && !state.archive" class="task-archive-bar">
-        <button type="button" class="task-archive-link" @click="openArchive">Архив</button>
-      </div>
     </div>
 
     <div class="overlay" :class="{ open: state.linkSheetOpen }" @click="state.linkSheetOpen = false" />
