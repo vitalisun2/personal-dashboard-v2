@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { listEntityConflicts, resolveEntityConflict, type EntityConflict } from './conflicts'
-import { subscribeSyncStatus } from './runtime'
+import { getOfflineStore, subscribeSyncStatus } from './runtime'
+import { conflictFields } from './conflictPresentation'
+import type { OfflineEntity } from './types'
 
 const conflicts = ref<EntityConflict[]>([])
 const selected = ref<EntityConflict | null>(null)
-const tab = ref<'local' | 'server'>('local')
+const entities = ref<OfflineEntity[]>([])
+const sides = ['local', 'server'] as const
 const dialog = ref<HTMLDialogElement | null>(null)
 const trigger = ref<HTMLButtonElement | null>(null)
 const busy = ref(false)
@@ -23,44 +26,22 @@ const entityLabel = computed(() => {
   }
   return entityLabels[selected.value.type] || 'Элемент'
 })
-const labels: Record<string, string> = {
-  title: 'Название', name: 'Название', description: 'Описание', markdown: 'Текст документа',
-  content: 'Содержимое', body: 'Описание', kind: 'Тип', location: 'Список', placement: 'Список', bucket: 'Список', workStatus: 'Статус задачи',
-  status: 'Статус', featureStatus: 'Статус фичи', isArchived: 'В архиве', archivedSectionName: 'Раздел архива',
-  path: 'Путь', position: 'Позиция', milestones: 'Эпики', features: 'Фичи', keys: 'Порядок разделов',
-  planning: 'Связь с планированием', parentId: 'Родительский раздел', sectionId: 'Раздел',
-  projectId: 'Проект', milestoneId: 'Эпик', featureId: 'Фича', url: 'Ссылка', archived: 'В архиве',
+const fields = computed(() => selected.value ? conflictFields(selected.value, entities.value) : [])
+const localUnavailable = computed(() => selected.value?.serverDeleted && !selected.value.localDeleted && !selected.value.order)
+function choiceLabel(side: 'local' | 'server') {
+  if (selected.value?.order) return side === 'local' ? 'Оставить порядок устройства' : 'Оставить порядок сервера'
+  if (side === 'local' ? selected.value?.localDeleted : selected.value?.serverDeleted) return 'Подтвердить удаление'
+  return side === 'local' ? 'Оставить вариант устройства' : 'Оставить вариант сервера'
 }
-const values: Record<string, string> = { backlog: 'Backlog', today: 'Сегодня', planned: 'В плане', archived: 'Архив', new: 'Новая', inprogress: 'В работе', done: 'Готово', active: 'В работе', document: 'Документ', section: 'Раздел' }
-function printable(value: unknown): string {
-  if (value === null || value === undefined || value === '') return '—'
-  if (typeof value === 'boolean') return value ? 'Да' : 'Нет'
-  if (typeof value === 'object') return JSON.stringify(value, null, 2)
-  return String(value)
-}
-const previewDeleted = computed(() => selected.value && (tab.value === 'local' ? selected.value.localDeleted : selected.value.serverDeleted))
-const orderItems = computed(() => selected.value?.order?.[tab.value] || [])
-const fields = computed(() => {
-  const payload = selected.value && (tab.value === 'local' ? selected.value.local : selected.value.server)
-  if (payload === null || payload === undefined) return []
-  if (typeof payload !== 'object' || Array.isArray(payload)) return [{ label: 'Содержимое', value: printable(payload) }]
-  const data = payload as Record<string, unknown>
-  const aliases: Record<string, string> = { body: 'description', placement: 'location', bucket: 'location', featureStatus: 'status', archived: 'isArchived', name: 'title' }
-  const entries = Object.entries(data).filter(([name]) => !['id', 'version', 'expectedVersion', 'expectedParentVersion', 'operation', 'updatedAt', 'updatedAtUtc', 'progressPercent', 'milestones', 'features'].includes(name) && !(aliases[name] && data[aliases[name]] !== undefined))
-  const priority = ['title', 'name', 'description', 'markdown', 'content']
-  entries.sort(([a], [b]) => (priority.includes(a) ? priority.indexOf(a) : 100) - (priority.includes(b) ? priority.indexOf(b) : 100))
-  return entries.map(([name, value]) => ({ label: labels[name] || name, value: ['location', 'placement', 'workStatus', 'status', 'featureStatus', 'kind'].includes(name) && typeof value === 'string' ? values[value.toLowerCase()] || value : printable(value) }))
-})
 async function reload() {
   const current = ++generation
   try {
-    const items = await listEntityConflicts()
-    if (current === generation) conflicts.value = items
+    const [items, records] = await Promise.all([listEntityConflicts(), getOfflineStore().then(store => store.listEntities())])
+    if (current === generation) { conflicts.value = items; entities.value = records }
   } catch (cause) { error.value = cause instanceof Error ? cause.message : 'Не удалось прочитать конфликты.' }
 }
 function pick(item: EntityConflict) {
   selected.value = item
-  tab.value = 'local'
   error.value = ''
 }
 async function open() {
@@ -78,19 +59,13 @@ function close() {
   dialog.value?.close()
   trigger.value?.focus()
 }
-function switchTab(event: KeyboardEvent) {
-  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key) || busy.value) return
-  event.preventDefault()
-  tab.value = event.key === 'Home' ? 'local' : event.key === 'End' ? 'server' : tab.value === 'local' ? 'server' : 'local'
-  void nextTick(() => dialog.value?.querySelector<HTMLButtonElement>(`#conflict-${tab.value}-tab`)?.focus())
-}
-async function choose() {
-  if (!selected.value || busy.value || selected.value.order?.error) return
+async function choose(side: 'local' | 'server') {
+  if (!selected.value || busy.value || selected.value.order?.error || (side === 'local' && localUnavailable.value)) return
   busy.value = true
   error.value = ''
   const resolvedKey = key(selected.value)
   try {
-    await resolveEntityConflict(selected.value, tab.value)
+    await resolveEntityConflict(selected.value, side)
     await reload()
     const next = conflicts.value.find(item => key(item) !== resolvedKey) || conflicts.value[0]
     if (next) pick(next)
@@ -116,42 +91,52 @@ onBeforeUnmount(() => {
   <dialog ref="dialog" class="conflict-dialog" aria-labelledby="conflict-heading" @close="selected = null" @click="event => { if (event.target === dialog && !busy) close() }">
     <div class="conflict-dialog-inner">
       <header class="conflict-header">
-        <h2 id="conflict-heading">{{ selected?.order ? 'Выберите порядок' : 'Выберите версию' }}</h2>
+        <h2 id="conflict-heading">{{ selected?.order ? 'Какой порядок оставить?' : 'Какой вариант оставить?' }}</h2>
         <button type="button" class="conflict-close" aria-label="Закрыть без выбора" @click="close">×</button>
       </header>
-      <p v-if="selected?.order" class="conflict-hint">Порядок элементов изменился на нескольких устройствах. Выберите последовательность. Изменится только порядок: названия, описания и содержимое сохранятся. Пока вы не выбрали, конфликт остаётся нерешённым.</p>
-      <p v-else class="conflict-hint">Данные изменились на нескольких устройствах. Сравните версии и выберите, какую сохранить целиком. Пока вы не выбрали, обе версии сохранены.</p>
+      <p class="conflict-hint">{{ selected?.order ? 'Отличается порядок элементов.' : 'Показаны только отличия. Пока вы не выбрали, оба варианта сохранены.' }}</p>
       <div v-if="conflicts.length > 1" class="conflict-list" aria-label="Конфликтующие элементы">
         <button v-for="item in conflicts" :key="key(item)" type="button" :class="{ active: selected && key(selected) === key(item) }" :disabled="busy" @click="pick(item)">{{ item.title }}</button>
       </div>
       <template v-if="selected">
         <h3 class="conflict-title">{{ selected.order ? selected.title : `${entityLabel} · ${selected.title}` }}</h3>
-        <div class="conflict-tabs" role="tablist" aria-label="Версия данных" @keydown="switchTab">
-          <button id="conflict-local-tab" type="button" role="tab" :tabindex="tab === 'local' ? 0 : -1" :aria-selected="tab === 'local'" aria-controls="conflict-preview" :disabled="busy" @click="tab = 'local'">На этом устройстве</button>
-          <button id="conflict-server-tab" type="button" role="tab" :tabindex="tab === 'server' ? 0 : -1" :aria-selected="tab === 'server'" aria-controls="conflict-preview" :disabled="busy" @click="tab = 'server'">На сервере</button>
-        </div>
-        <section id="conflict-preview" class="conflict-preview" role="tabpanel" :aria-labelledby="`conflict-${tab}-tab`" tabindex="0">
-          <template v-if="selected.order">
-            <p v-if="selected.order.error" class="conflict-error" role="alert">{{ selected.order.error }} Закройте окно и откройте конфликт заново, чтобы обновить список.</p>
-            <ol v-else-if="orderItems.length" class="conflict-order" :aria-label="tab === 'local' ? 'Порядок на этом устройстве' : 'Порядок на сервере'">
-              <li v-for="item in orderItems" :key="item.id">{{ item.title || 'Без названия' }}</li>
-            </ol>
-            <p v-else>В этом списке нет элементов.</p>
-            <div v-if="!selected.order.error" class="conflict-order-notes">
-              <p v-if="selected.order.addedTitles?.length">Новые элементы с сервера добавлены в конец порядка устройства: {{ selected.order.addedTitles.join(', ') }}.</p>
-              <p v-if="selected.order.removedTitles?.length">Удалённые или перенесённые на сервере элементы исключены из порядка устройства: {{ selected.order.removedTitles.join(', ') }}.</p>
+        <p class="conflict-hint">{{ selected.order ? 'Сохранится только выбранный порядок. Содержимое не изменится.' : 'Выбранный вариант сохранится целиком.' }}</p>
+        <p v-if="selected.order?.error" class="conflict-error" role="alert">{{ selected.order.error }} Закройте окно и откройте его снова.</p>
+        <div :key="key(selected)" class="conflict-cards">
+          <section v-for="side in sides" :key="side" class="conflict-card" :aria-labelledby="`conflict-${side}-heading`">
+            <h4 :id="`conflict-${side}-heading`">{{ side === 'local' ? 'На этом устройстве' : 'На сервере' }}</h4>
+            <div class="conflict-card-body">
+              <template v-if="selected.order">
+                <ol v-if="selected.order[side].length" class="conflict-order" :aria-label="side === 'local' ? 'Порядок на этом устройстве' : 'Порядок на сервере'">
+                  <li v-for="item in selected.order[side]" :key="item.id">{{ item.title || 'Без названия' }}</li>
+                </ol>
+                <p v-else>В этом списке нет элементов.</p>
+              </template>
+              <dl v-else-if="fields.length">
+                <template v-for="field in fields" :key="field.key">
+                  <dt>{{ field.label }}</dt>
+                  <dd :class="{ 'conflict-deleted': field.key === 'deleted' && field[side] === 'Удалена' }">
+                    <details v-if="field.expandable && field[side] !== 'Удалено' && field[side] !== 'Не указано'">
+                      <summary>{{ field.key === 'description' && selected.type === 'knowledge.node' ? 'Посмотреть текст' : 'Посмотреть описание' }}</summary>
+                      <div class="conflict-text">{{ field[side] }}</div>
+                    </details>
+                    <template v-else>{{ field[side] }}</template>
+                  </dd>
+                </template>
+              </dl>
+              <p v-else>{{ selected.localDeleted && selected.serverDeleted ? 'Запись удалена.' : 'Содержимое совпадает.' }}</p>
             </div>
-          </template>
-          <p v-else-if="previewDeleted" class="conflict-deleted">В этой версии элемент удалён. Выбор этой версии сохранит удаление.</p>
-          <dl v-else-if="fields.length">
-            <template v-for="(field, index) in fields" :key="index"><dt>{{ field.label }}</dt><dd>{{ field.value }}</dd></template>
-          </dl>
-          <p v-else>Содержимое версии отсутствует.</p>
-        </section>
+            <button type="button" class="conflict-choose" :disabled="busy || !!selected.order?.error || (side === 'local' && !!localUnavailable)" @click="choose(side)">{{ busy ? 'Сохраняем…' : choiceLabel(side) }}</button>
+          </section>
+        </div>
+        <div v-if="selected.order && !selected.order.error" class="conflict-order-notes">
+          <p v-if="selected.order.addedTitles?.length">Новые элементы с сервера добавлены в конец порядка устройства: {{ selected.order.addedTitles.join(', ') }}.</p>
+          <p v-if="selected.order.removedTitles?.length">Удалённые или перенесённые на сервере элементы исключены из порядка устройства: {{ selected.order.removedTitles.join(', ') }}.</p>
+        </div>
+        <p v-if="localUnavailable" class="conflict-hint">На сервере запись удалена. Скопируйте нужный текст из карточки устройства перед подтверждением удаления.</p>
         <p v-if="error" class="conflict-error" role="alert">{{ error }}</p>
         <footer class="conflict-footer">
           <button type="button" class="conflict-later" @click="close">Решить позже</button>
-          <button type="button" class="conflict-choose" :disabled="busy || !!selected.order?.error" @click="choose">{{ busy ? 'Сохраняем…' : selected.order ? (tab === 'local' ? 'Выбрать порядок устройства' : 'Выбрать порядок сервера') : (tab === 'local' ? 'Выбрать версию устройства' : 'Выбрать версию сервера') }}</button>
         </footer>
       </template>
     </div>
@@ -160,7 +145,7 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .conflict-trigger { align-self: flex-start; margin: 4px 20px 10px; padding: 9px 12px; border: 1px solid var(--warning-line); border-radius: 12px; background: var(--warning-surface); color: var(--warning); font: inherit; font-size: 13px; cursor: pointer; }
-.conflict-dialog { width: min(620px, calc(100vw - 24px)); max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line); border-radius: 20px; background: var(--surface, #fff); color: var(--text, #252938); box-shadow: 0 24px 80px #0004; }
+.conflict-dialog { width: min(820px, calc(100vw - 24px)); box-sizing: border-box; max-height: calc(100dvh - 32px); padding: 0; border: 1px solid var(--line); border-radius: 20px; background: var(--surface, #fff); color: var(--text, #252938); box-shadow: 0 24px 80px #0004; }
 .conflict-dialog::backdrop { background: #17203588; }
 .conflict-dialog-inner { display: flex; flex-direction: column; gap: 14px; padding: 20px; }
 .conflict-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -171,14 +156,16 @@ onBeforeUnmount(() => {
 .conflict-list button { max-width: 100%; overflow-wrap: anywhere; border: 1px solid var(--line-strong); border-radius: 10px; background: transparent; color: inherit; padding: 8px 10px; }
 .conflict-list .active { border-color: var(--accent); background: var(--accent-surface); color: var(--accent); }
 .conflict-title { margin: 0; font-size: 17px; overflow-wrap: anywhere; }
-.conflict-tabs { display: flex; gap: 6px; }
-.conflict-tabs button { flex: 1; min-height: 44px; border: 1px solid var(--line-strong); border-radius: 10px; padding: 9px; font: inherit; font-size: 13px; color: inherit; background: transparent; }
-.conflict-tabs [aria-selected="true"] { color: var(--accent); background: var(--accent-surface); border-color: var(--accent); }
-.conflict-preview { min-height: 120px; max-height: 42dvh; overflow: auto; overscroll-behavior: contain; padding: 14px; border: 1px solid var(--line); border-radius: 12px; }
-.conflict-preview dl, .conflict-preview p { margin: 0; }
-.conflict-preview dt { margin-top: 16px; font-size: 12px; font-weight: 600; opacity: .7; }
-.conflict-preview dt:first-child { margin-top: 0; }
-.conflict-preview dd { margin: 5px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; }
+.conflict-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.conflict-card { min-width: 0; display: flex; flex-direction: column; gap: 14px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; }
+.conflict-card h4 { margin: 0; font-size: 15px; }
+.conflict-card-body { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.conflict-card-body dl, .conflict-card-body p { margin: 0; }
+.conflict-card-body dt { margin-top: 16px; font-size: 12px; font-weight: 600; opacity: .7; }
+.conflict-card-body dt:first-child { margin-top: 0; }
+.conflict-card-body dd { margin: 5px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 14px; line-height: 1.5; }
+.conflict-card-body summary { color: var(--accent); cursor: pointer; min-height: 32px; }
+.conflict-text { margin-top: 8px; max-height: 260px; overflow: auto; overscroll-behavior: contain; }
 .conflict-order { margin: 0; padding-left: 26px; font-size: 14px; line-height: 1.5; }
 .conflict-order li { padding: 7px 0 7px 4px; overflow-wrap: anywhere; border-bottom: 1px solid var(--line); }
 .conflict-order li:last-child { border-bottom: 0; }
@@ -187,10 +174,11 @@ onBeforeUnmount(() => {
 .conflict-deleted, .conflict-error { color: var(--danger); line-height: 1.5; }
 .conflict-error { margin: 0; font-size: 13px; }
 .conflict-footer { display: flex; gap: 10px; justify-content: flex-end; }
-.conflict-footer button { min-height: 44px; border-radius: 10px; padding: 10px 14px; font: inherit; font-size: 13px; cursor: pointer; }
+.conflict-footer button, .conflict-choose { min-height: 44px; border-radius: 10px; padding: 10px 14px; font: inherit; font-size: 13px; cursor: pointer; }
 .conflict-later { border: 1px solid var(--line-strong); background: transparent; color: inherit; }
 .conflict-choose { border: 1px solid var(--primary); background: var(--primary); color: var(--on-primary); }
 button:disabled { opacity: .55; cursor: wait; }
-button:focus-visible, .conflict-preview:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+button:focus-visible, summary:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+@media (max-width: 600px) { .conflict-cards { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 440px) { .conflict-dialog-inner { padding: 16px; } .conflict-footer { flex-direction: column-reverse; } .conflict-footer button { width: 100%; } }
 </style>

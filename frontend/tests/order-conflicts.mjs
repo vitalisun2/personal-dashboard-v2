@@ -113,19 +113,19 @@ try {
       const { a, b, c, d, isGroup } = await seed(scope);
       const before = await stored();
       await page.getByRole('button', { name: 'Разобрать конфликты · 1', exact: true }).click();
-      await page.getByRole('tabpanel').waitFor();
-      assert.deepEqual(await page.locator('.conflict-order li').allTextContents(), [`Title ${b}`, `Title ${a}`, `Title ${c}`], `${scope.name}: reconciled local order preview`);
+      const localCard = page.getByRole('region', { name: 'На этом устройстве', exact: true });
+      const serverCard = page.getByRole('region', { name: 'На сервере', exact: true });
+      await localCard.waitFor();
+      assert.deepEqual(await localCard.locator('.conflict-order li').allTextContents(), [`Title ${b}`, `Title ${a}`, `Title ${c}`], `${scope.name}: reconciled local order preview`);
       await page.locator('.conflict-order-notes').getByText(`Новые элементы с сервера добавлены в конец порядка устройства: Title ${c}.`, { exact: true }).waitFor();
       await page.locator('.conflict-order-notes').getByText(`Удалённые или перенесённые на сервере элементы исключены из порядка устройства: Title ${d}.`, { exact: true }).waitFor();
       if (scope.name === 'tasks-section' && choice === 'local' && process.env.TEST_SCREENSHOT_PATH)
         await page.screenshot({ path: process.env.TEST_SCREENSHOT_PATH, fullPage: true });
-      await page.getByRole('tab', { name: 'На сервере', exact: true }).click();
-      assert.deepEqual(await page.locator('.conflict-order li').allTextContents(), [`Title ${a}`, `Title ${b}`, `Title ${c}`], `${scope.name}: remote order preview`);
+      assert.deepEqual(await serverCard.locator('.conflict-order li').allTextContents(), [`Title ${a}`, `Title ${b}`, `Title ${c}`], `${scope.name}: remote order preview`);
       await page.getByRole('button', { name: 'Решить позже', exact: true }).click();
       assert.deepEqual(await stored(), before, `${scope.name}: cancel changes no stored data`);
       await page.getByRole('button', { name: 'Разобрать конфликты · 1', exact: true }).click();
-      await page.getByRole('tab', { name: choice === 'local' ? 'На этом устройстве' : 'На сервере', exact: true }).click();
-      await page.getByRole('button', { name: choice === 'local' ? 'Выбрать порядок устройства' : 'Выбрать порядок сервера', exact: true }).click();
+      await page.getByRole('button', { name: choice === 'local' ? 'Оставить порядок устройства' : 'Оставить порядок сервера', exact: true }).click();
       await page.getByRole('dialog').waitFor({ state: 'hidden' });
       const after = await stored();
       assert.equal(after.conflicts.length, 0, `${scope.name}: both reorder conflicts cleared`);
@@ -151,7 +151,7 @@ try {
   await page.getByRole('button', { name: 'Разобрать конфликты · 1', exact: true }).click();
   const before = await stored();
   fixture.tasks[0].version++;
-  await page.getByRole('button', { name: 'Выбрать порядок устройства', exact: true }).click();
+  await page.getByRole('button', { name: 'Оставить порядок устройства', exact: true }).click();
   await page.getByRole('alert').waitFor();
   assert.deepEqual(await stored(), before, 'A changed remote collection rejects a stale decision without discarding anything');
   await page.getByRole('button', { name: 'Решить позже', exact: true }).click();
@@ -159,8 +159,7 @@ try {
   await page.getByRole('button', { name: 'Разобрать конфликты · 1', exact: true }).click();
   const offlineBefore = await stored();
   unavailable = true;
-  await page.getByRole('tab', { name: 'На сервере', exact: true }).click();
-  await page.getByRole('button', { name: 'Выбрать порядок сервера', exact: true }).click();
+  await page.getByRole('button', { name: 'Оставить порядок сервера', exact: true }).click();
   await page.getByRole('alert').waitFor();
   assert.deepEqual(await stored(), offlineBefore, 'Connection loss during confirmation cannot silently apply a cached order');
   assert.deepEqual(errors, []);
