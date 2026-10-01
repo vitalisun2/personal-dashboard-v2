@@ -39,6 +39,8 @@
   }
 
   .phone-shell .page-content { min-width: 0; }
+  .phone-shell .tasks-section .task-toolbar { --task-tabs-width: 300px; }
+  .phone-shell .tasks-section .task-tab { font-size: 13px; }
   .phone-shell .bottom-window { padding-bottom: max(9px, env(safe-area-inset-bottom)); }
   .phone-shell .bottom-item { flex: 1; min-width: 0; }
 

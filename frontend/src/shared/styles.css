@@ -274,12 +274,12 @@ button { border: 0; background: transparent; cursor: pointer; }
 /* Task Tracker */
 .phone-shell .tasks-section{display:flex;min-height:0;flex:1;flex-direction:column}
 .phone-shell .tasks-section .task-board{display:flex;min-height:0;flex:1;flex-direction:column}
-.phone-shell .tasks-section .task-toolbar{--toolbar-gap:4px;display:flex;align-items:center;gap:var(--toolbar-gap);margin:var(--toolbar-top-space) 0 var(--toolbar-bottom-space);flex:none}
-.phone-shell .tasks-section .task-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;padding:3px;min-height:var(--toolbar-control-size);flex:1;min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:var(--toolbar-control-radius)}
-.phone-shell .tasks-section .task-tab{min-width:0;padding:0;white-space:nowrap;min-height:calc(var(--toolbar-control-size) - 8px);border:0;border-radius:9px;background:transparent;color:var(--muted);font-size:12px;font-weight:650}
+.phone-shell .tasks-section .task-toolbar{--task-toolbar-button-size:48px;--task-tabs-width:192px;--toolbar-gap:4px;display:flex;align-items:center;gap:var(--toolbar-gap);margin:var(--toolbar-top-space) 0 var(--toolbar-bottom-space);flex:none}
+.phone-shell .tasks-section .task-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:3px;padding:3px;min-height:calc(var(--task-toolbar-button-size) - 8px);width:var(--task-tabs-width);flex:0 0 var(--task-tabs-width);min-width:0;background:var(--bg);border:1px solid var(--line);border-radius:var(--toolbar-control-radius)}
+.phone-shell .tasks-section .task-tab{min-width:0;padding:0;white-space:nowrap;min-height:calc(var(--task-toolbar-button-size) - 16px);border:0;border-radius:9px;background:transparent;color:var(--muted);font-size:12px;font-weight:650}
 .phone-shell .tasks-section .task-tab.active{background:var(--surface-2);color:var(--text);font-weight:720;box-shadow:inset 0 0 0 1px var(--line)}
-.phone-shell .tasks-section .task-toolbar-actions{display:flex;gap:var(--toolbar-gap);flex:none}
-.phone-shell .tasks-section .task-icon-button,.phone-shell .tasks-section .task-toolbar .plus{width:36px;min-width:36px;height:var(--toolbar-control-size);flex:0 0 36px;display:grid;place-items:center;border:1px solid var(--line);border-radius:var(--toolbar-control-radius);background:var(--surface);color:var(--text-secondary);line-height:1}
+.phone-shell .tasks-section .task-toolbar-actions{display:flex;margin-left:auto;gap:var(--toolbar-gap);flex:none}
+.phone-shell .tasks-section .task-icon-button,.phone-shell .tasks-section .task-toolbar .plus{width:var(--task-toolbar-button-size);min-width:var(--task-toolbar-button-size);height:var(--task-toolbar-button-size);flex:0 0 var(--task-toolbar-button-size);display:grid;place-items:center;border:1px solid var(--line);border-radius:var(--toolbar-control-radius);background:var(--surface);color:var(--text-secondary);line-height:1}
 .phone-shell .tasks-section .task-icon-button{font-size:18px}
 .phone-shell .tasks-section .task-toolbar .plus{background:var(--surface);color:var(--text);font-size:23px;font-weight:500}
 .phone-shell .tasks-section .task-icon-button:active,.phone-shell .tasks-section .task-toolbar .plus:active{background:var(--surface-2);color:var(--text)}
@@ -380,8 +380,13 @@ button { border: 0; background: transparent; cursor: pointer; }
 .phone-shell .planning-list-head{min-height:34px}
 .phone-shell .planning-list-actions>.planning-order-toggle,.phone-shell .planning-head-actions>.planning-order-toggle{width:34px;min-width:34px;height:34px;padding:0;border-radius:10px}
 .phone-shell .planning-list-actions>button:last-child,.phone-shell .planning-head-actions>.planning-head-plus{width:34px;height:34px;border-radius:10px}
-.phone-shell .tasks-section .task-toolbar .order-mode-toggle{width:36px;min-width:36px;height:var(--toolbar-control-size);flex:0 0 36px}
+.phone-shell .tasks-section .task-toolbar .order-mode-toggle{width:var(--task-toolbar-button-size);min-width:var(--task-toolbar-button-size);height:var(--task-toolbar-button-size);flex:0 0 var(--task-toolbar-button-size)}
 .reorder-ghost{position:fixed;z-index:9999;pointer-events:none;display:flex;align-items:center;overflow:hidden;padding:0 12px;border:2px solid rgba(184,211,242,.9);border-radius:12px;background:rgba(39,55,71,.2);box-shadow:0 12px 30px rgba(0,0,0,.08);color:var(--text);font-size:14px;font-weight:650;white-space:nowrap;text-overflow:ellipsis}
+
+@media (max-width:360px){
+  .phone-shell .tasks-section .task-toolbar{--task-toolbar-button-size:40px;--task-tabs-width:156px}
+  .phone-shell .tasks-section .task-tab{font-size:11.5px}
+}
 
 /* Row actions: the list stays still and the menu opens beside the selected row. */
 .phone-shell .node,.phone-shell .tasks-section .task-row,.phone-shell .tasks-section .task-section-row{user-select:none}
