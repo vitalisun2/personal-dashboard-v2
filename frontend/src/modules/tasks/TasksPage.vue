@@ -527,7 +527,7 @@ async function submitCreate() {
       return
     }
     const created = await createTask()
-    if (created) { closeCreateSheet(); void router.push(`/tasks/${created.id}`) }
+    if (created) closeCreateSheet()
   } catch (error) { state.error = (error as Error).message }
 }
 async function createTask(): Promise<Task | null> {
