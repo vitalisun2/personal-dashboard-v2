@@ -18,7 +18,6 @@ public static class PlatformRegistration
             connectionString,
             postgres => postgres.MigrationsAssembly("PersonalDashboard.V2.Host")));
         services.AddScoped<IEntityChangeJournal, EfEntityChangeJournal>();
-        services.AddScoped<PeerChangeOrigin>();
         services.AddScoped<ISyncOperationJournal, EfSyncOperationJournal>();
         services.AddScoped<ITransactionRunner, EfTransactionRunner>();
         return services;

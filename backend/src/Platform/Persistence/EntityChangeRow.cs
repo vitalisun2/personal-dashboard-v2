@@ -7,17 +7,10 @@ public sealed class EntityChangeRow
     public Guid Id { get; set; }
     public long Version { get; set; }
     public bool Deleted { get; set; }
-    public bool ImportedFromPeer { get; set; }
     public string? PayloadJson { get; set; }
 }
 
 public sealed class EntityChangeCursorRow
-{
-    public int Id { get; set; }
-    public long Sequence { get; set; }
-}
-
-public sealed class V1PeerCursorRow
 {
     public int Id { get; set; }
     public long Sequence { get; set; }

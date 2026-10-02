@@ -37,22 +37,15 @@ if (-not (Test-Path -LiteralPath $envFile -PathType Leaf)) {
 
     $db = Get-ComposeContainer 'db'
     $app = Get-ComposeContainer 'app'
+    if (-not $env:V2_OPENROUTER_API_KEY_FILE) {
+        $env:V2_OPENROUTER_API_KEY_FILE = 'C:/Personal/Secrets/open-router-api-key-vs-code.txt'
+    }
     if (-not $env:V2_DB_PASSWORD) {
         $password = Get-ContainerEnv $db 'POSTGRES_PASSWORD'
         if (-not $password) { throw 'The running V2 database has no password configuration.' }
         $env:V2_DB_PASSWORD = $password
     }
-    if (-not $env:V2_OPENROUTER_API_KEY_FILE) {
-        $secret = $app.Mounts | Where-Object { $_.Destination -eq '/run/secrets/openrouter-api-key' } | Select-Object -First 1
-        if (-not $secret -or -not (Test-Path -LiteralPath $secret.Source -PathType Leaf)) {
-            throw 'The running V2 app has no accessible OpenRouter key mount.'
-        }
-        $env:V2_OPENROUTER_API_KEY_FILE = $secret.Source
-    }
-
     $options = @{
-        'V1_PEER_URL' = 'V1_PEER_URL'
-        'V1_V2_SYNC_KEY' = 'V1_V2_SYNC_KEY'
         'V2_OLLAMA_URL' = 'OLLAMA_URL'
         'V2_GEMMA_MODEL' = 'OLLAMA_CHAT_MODEL'
         'V2_EMBED_MODEL' = 'OLLAMA_EMBED_MODEL'
